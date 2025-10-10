@@ -10,7 +10,9 @@
     5. Track account
 */
 
+require('dotenv').config();
 const express = require('express');
+const { sendOTP, verifyOTP, sendAccountConfirmation, sendTransactionNotification } = require('./smsService');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -72,8 +74,8 @@ function fundMenu(prefix) {
   ].join('\n');
 }
 
-function handleCreateAccount(parts) {
-  // parts: ['1', fund?, name?, phone?, id?, pin?]
+async function handleCreateAccount(parts) {
+  // parts: ['1', fund?, name?, phone?, id?, pin?, otp?]
   if (parts.length === 1) {
     return fundMenu('');
   }
@@ -109,13 +111,61 @@ function handleCreateAccount(parts) {
   if (!/^\d{4}$/.test(pin)) {
     return 'CON Invalid PIN. Enter a 4-digit PIN';
   }
-
-  // Save account bound to the entered phone number
-  users.set(enteredPhone, { name, idNumber, pin, fund: FUNDS[fund] });
-  if (!balances.has(enteredPhone)) setBalance(enteredPhone, 0);
-  addTx(enteredPhone, { type: 'ACCOUNT_CREATED', amount: 0 });
-
-  return `END Account created successfully for ${name}.\nFund: ${FUNDS[fund]}`;
+  
+  // New step: Send OTP for verification
+  if (parts.length === 6) {
+    // Check if user already exists
+    if (users.has(enteredPhone)) {
+      return 'END Account already exists for this phone number.';
+    }
+    
+    try {
+      const otpResult = await sendOTP(enteredPhone, name);
+      if (otpResult.success) {
+        return 'CON An OTP has been sent to your phone. Enter the 6-digit code to verify:';
+      } else {
+        return `END Failed to send OTP: ${otpResult.message}`;
+      }
+    } catch (error) {
+      console.error('Error sending OTP:', error);
+      return 'END Failed to send OTP. Please try again later.';
+    }
+  }
+  
+  // Verify OTP and create account
+  if (parts.length === 7) {
+    const inputOTP = parts[6];
+    if (!/^\d{6}$/.test(inputOTP)) {
+      return 'CON Invalid OTP format. Enter a 6-digit code:';
+    }
+    
+    const verification = verifyOTP(enteredPhone, inputOTP);
+    if (!verification.success) {
+      return `CON ${verification.message}`;
+    }
+    
+    // OTP verified successfully, create account
+    users.set(enteredPhone, { name, idNumber, pin, fund: FUNDS[fund] });
+    if (!balances.has(enteredPhone)) setBalance(enteredPhone, 0);
+    addTx(enteredPhone, { type: 'ACCOUNT_CREATED', amount: 0 });
+    
+    // Send confirmation SMS (don't wait for it)
+    sendAccountConfirmation(enteredPhone, name, FUNDS[fund], 0)
+      .then(result => {
+        if (result.success) {
+          console.log(`Confirmation SMS sent to ${enteredPhone}`);
+        } else {
+          console.error(`Failed to send confirmation SMS: ${result.message}`);
+        }
+      })
+      .catch(error => {
+        console.error('Error sending confirmation SMS:', error);
+      });
+    
+    return `END Account created successfully for ${name}.\nFund: ${FUNDS[fund]}\nA confirmation SMS has been sent.`;
+  }
+  
+  return 'END Invalid request.';
 }
 
 function requireExistingUser(phoneNumber) {
@@ -126,7 +176,7 @@ function requireExistingUser(phoneNumber) {
   return { user };
 }
 
-function handleInvest(parts, phoneNumber) {
+async function handleInvest(parts, phoneNumber) {
   // parts: ['2', amount?, pin?]
   if (parts.length === 1) {
     return 'CON Enter amount to invest (KES)';
@@ -146,11 +196,24 @@ function handleInvest(parts, phoneNumber) {
   const newBal = getBalance(phoneNumber) + amount;
   setBalance(phoneNumber, newBal);
   addTx(phoneNumber, { type: 'INVEST', amount });
+  
+  // Send SMS notification (don't wait for it)
+  sendTransactionNotification(phoneNumber, 'INVEST', amount, newBal, user.name)
+    .then(result => {
+      if (result.success) {
+        console.log(`Investment SMS sent to ${phoneNumber}`);
+      } else {
+        console.error(`Failed to send investment SMS: ${result.message}`);
+      }
+    })
+    .catch(error => {
+      console.error('Error sending investment SMS:', error);
+    });
 
-  return `END Invested KES ${toK(amount)} into ${user.fund}.\nNew balance: KES ${toK(newBal)}`;
+  return `END Invested KES ${toK(amount)} into ${user.fund}.\nNew balance: KES ${toK(newBal)}\nSMS confirmation sent.`;
 }
 
-function handleWithdraw(parts, phoneNumber) {
+async function handleWithdraw(parts, phoneNumber) {
   // parts: ['3', amount?, pin?]
   if (parts.length === 1) {
     return 'CON Enter amount to withdraw (KES)';
@@ -174,8 +237,21 @@ function handleWithdraw(parts, phoneNumber) {
   const newBal = bal - amount;
   setBalance(phoneNumber, newBal);
   addTx(phoneNumber, { type: 'WITHDRAW', amount });
+  
+  // Send SMS notification (don't wait for it)
+  sendTransactionNotification(phoneNumber, 'WITHDRAW', amount, newBal, user.name)
+    .then(result => {
+      if (result.success) {
+        console.log(`Withdrawal SMS sent to ${phoneNumber}`);
+      } else {
+        console.error(`Failed to send withdrawal SMS: ${result.message}`);
+      }
+    })
+    .catch(error => {
+      console.error('Error sending withdrawal SMS:', error);
+    });
 
-  return `END Withdrawal of KES ${toK(amount)} successful.\nNew balance: KES ${toK(newBal)}`;
+  return `END Withdrawal of KES ${toK(amount)} successful.\nNew balance: KES ${toK(newBal)}\nSMS confirmation sent.`;
 }
 
 function handleCheckBalance(parts, phoneNumber) {
@@ -213,7 +289,7 @@ function handleTrackAccount(parts, phoneNumber) {
   return lines.join('\n');
 }
 
-app.post('/ussd', (req, res) => {
+app.post('/ussd', async (req, res) => {
   // Typical payload fields for USSD gateways
   const { sessionId, serviceCode, phoneNumber, text = '' } = req.body || {};
 
@@ -228,20 +304,27 @@ app.post('/ussd', (req, res) => {
   const choice = parts[0];
 
   try {
+    let response;
     switch (choice) {
       case '1':
-        return res.send(handleCreateAccount(parts));
+        response = await handleCreateAccount(parts);
+        break;
       case '2':
-        return res.send(handleInvest(parts, phoneNumber));
+        response = await handleInvest(parts, phoneNumber);
+        break;
       case '3':
-        return res.send(handleWithdraw(parts, phoneNumber));
+        response = await handleWithdraw(parts, phoneNumber);
+        break;
       case '4':
-        return res.send(handleCheckBalance(parts, phoneNumber));
+        response = handleCheckBalance(parts, phoneNumber);
+        break;
       case '5':
-        return res.send(handleTrackAccount(parts, phoneNumber));
+        response = handleTrackAccount(parts, phoneNumber);
+        break;
       default:
-        return res.send('END Invalid choice');
+        response = 'END Invalid choice';
     }
+    return res.send(response);
   } catch (err) {
     console.error('USSD handler error:', err);
     return res.send('END An error occurred. Please try again later.');

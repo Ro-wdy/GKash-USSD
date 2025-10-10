@@ -15,7 +15,9 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^5.1.0"
+    "dotenv": "^17.2.3",
+    "express": "^5.1.0",
+    "twilio": "^5.10.2"
   },
   "devDependencies": {
     "nodemon": "^3.1.10"
