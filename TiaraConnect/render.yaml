@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: tiara-connect-otp
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: PORT
+        value: 3000
+    autoDeploy: true
