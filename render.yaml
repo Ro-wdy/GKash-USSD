@@ -2,7 +2,6 @@ services:
   - type: web
     name: tiara-connect-otp
     runtime: node
-    rootDirectory: TiaraConnect
     plan: free
     buildCommand: npm install
     startCommand: npm start
