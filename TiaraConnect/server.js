@@ -252,7 +252,13 @@ async function handleCreateAccount(parts, phoneNumber) {
       // Check if account exists
       if (users.has(phoneNumber)) {
         console.log("Account already exists");
-        return "END Account already exists for this number.";
+        return (
+          "CON Thank you, Welcome to Gkash, Save.Invest.Grow\n" +
+          "1. Invest\n" +
+          "2. Withdraw\n" +
+          "3. Check balance\n" +
+          "4. Track account"
+        );
       }
 
       console.log("Attempting to send OTP...");
