@@ -136,8 +136,7 @@ function fundMenu(prefix) {
   menu += "1. Money Market Fund\n";
   menu += "2. Fixed Income Fund\n";
   menu += "3. Balanced Fund\n";
-  menu += "4. Stock Market\n";
-  menu += "0. Back";
+  menu += "4. Stock Market";
 
   console.log(">>> Generated fund menu:", menu);
   return menu;
@@ -163,11 +162,6 @@ async function handleCreateAccount(parts, phoneNumber) {
       const fund = parts[1];
       console.log("STEP 2: Fund selection =", fund);
 
-      // Handle back option
-      if (fund === "0") {
-        return welcomeMenu();
-      }
-
       console.log("FUNDS object:", FUNDS);
       console.log("Is valid fund?", !!FUNDS[fund]);
 
@@ -177,7 +171,7 @@ async function handleCreateAccount(parts, phoneNumber) {
       }
 
       console.log("Valid fund:", FUNDS[fund]);
-      return "CON Enter your full name\n0. Back";
+      return "CON Enter your full name";
     }
 
     // Step 3: Get name, ask for ID
@@ -186,21 +180,16 @@ async function handleCreateAccount(parts, phoneNumber) {
       const name = parts[2];
       console.log("STEP 3: Name =", name);
 
-      // Handle back option
-      if (name === "0") {
-        return fundMenu("");
-      }
-
       if (!FUNDS[fund]) {
         return "END Session error. Please start over.";
       }
 
       if (!name || name.trim().length < 2) {
         console.log("Name too short");
-        return "CON Name too short. Enter full name:\n0. Back";
+        return "CON Name too short. Enter full name:";
       }
 
-      return "CON Enter your ID number (digits only)\n0. Back";
+      return "CON Enter your ID number (digits only)";
     }
 
     // Step 4: Get ID, ask for PIN
@@ -210,21 +199,16 @@ async function handleCreateAccount(parts, phoneNumber) {
       const idNumber = parts[3];
       console.log("STEP 4: ID =", idNumber);
 
-      // Handle back option
-      if (idNumber === "0") {
-        return `CON Enter your full name\n0. Back`;
-      }
-
       if (!FUNDS[fund]) {
         return "END Session error. Please start over.";
       }
 
       if (!/^\d{6,}$/.test(idNumber)) {
         console.log("Invalid ID format");
-        return "CON Invalid ID. Enter at least 6 digits:\n0. Back";
+        return "CON Invalid ID. Enter at least 6 digits:";
       }
 
-      return "CON Create a 4-digit PIN\n0. Back";
+      return "CON Create a 4-digit PIN";
     }
 
     // Step 5: Get PIN, send OTP
@@ -235,18 +219,13 @@ async function handleCreateAccount(parts, phoneNumber) {
       const pin = parts[4];
       console.log("STEP 5: PIN =", pin);
 
-      // Handle back option
-      if (pin === "0") {
-        return "CON Enter your ID number (digits only)\n0. Back";
-      }
-
       if (!FUNDS[fund]) {
         return "END Session error. Please start over.";
       }
 
       if (!/^\d{4}$/.test(pin)) {
         console.log("Invalid PIN format");
-        return "CON Invalid PIN. Enter 4 digits:\n0. Back";
+        return "CON Invalid PIN. Enter 4 digits:";
       }
 
       // Check if account exists
@@ -269,7 +248,7 @@ async function handleCreateAccount(parts, phoneNumber) {
         if (otpResult.success) {
           storeOTP(phoneNumber, otpResult.otp);
           console.log("OTP stored successfully");
-          return "CON OTP sent to your phone.\nEnter 6-digit code:\n0. Back";
+          return "CON OTP sent to your phone.\nEnter 6-digit code:";
         } else {
           console.error("OTP send failed:", otpResult);
           return `END Failed to send OTP: ${
@@ -291,17 +270,12 @@ async function handleCreateAccount(parts, phoneNumber) {
       const inputOTP = parts[5];
       console.log("STEP 6: Verifying OTP =", inputOTP);
 
-      // Handle back option
-      if (inputOTP === "0") {
-        return "CON Create a 4-digit PIN\n0. Back";
-      }
-
       if (!FUNDS[fund]) {
         return "END Session error. Please start over.";
       }
 
       if (!/^\d{6}$/.test(inputOTP)) {
-        return "CON Invalid OTP format. Enter 6 digits:\n0. Back";
+        return "CON Invalid OTP format. Enter 6 digits:";
       }
 
       const verification = verifyOTP(phoneNumber, inputOTP);
