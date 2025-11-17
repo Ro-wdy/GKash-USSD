@@ -1,9 +1,9 @@
 const axios = require("axios");
 require("dotenv").config();
 
-const TIARA_URL = "https://api2.tiaraconnect.io/api/messaging/sendsms";
-const API_KEY =
-  "eyJhbGciOiJIUzUxMiJ9.eyJzdWIiOiI2NTAiLCJvaWQiOjY1MCwidWlkIjoiZDM2NTFjYzItZmRjNS00NmM1LTgxNzQtOTA4YWE0ZGE2YjA4IiwiYXBpZCI6NjUzLCJpYXQiOjE3NjAxMDgyMjIsImV4cCI6MjEwMDEwODIyMn0.MrReTPTpMf1GaDQnzXpF7DNLfcltEWTcWa0PL-3T1l4bum0xX6W7lnU0bq3iJShjM8xbwImMyrUIjQ2DS0GrjQ";
+const TIARA_URL =
+  process.env.TIARA_URL || "https://api2.tiaraconnect.io/api/messaging/sendsms";
+const API_KEY = process.env.TIARA_API_KEY;
 const SENDER_ID = process.env.TIARA_SENDER_ID || "CONNECT";
 const TIMEOUT = 10000;
 

@@ -1,7 +1,7 @@
 /*
   Gkash USSD Server (Express)
   Menu flow:
-  - *384*83656#
+  - *710*56789#
   - Welcome to Gkash, Learn.Invest.Grow
     1. Create account
     2. Invest
@@ -12,12 +12,7 @@
 
 require("dotenv").config();
 const express = require("express");
-const AfricasTalking = require("africastalking")({
-  apiKey:
-    "atsk_ee7869b8feba48dca696dcd830031ed2118ab4c164ff91a115c868782c68e44c42652954",
-  username: "sandbox",
-});
-const { sendOTP } = require("./tiaraService");
+const { sendOTP, sendSMS } = require("./tiaraService");
 const crypto = require("crypto");
 
 const app = express();
@@ -303,11 +298,10 @@ async function handleCreateAccount(parts, phoneNumber) {
 
       // Send SMS
       try {
-        await AfricasTalking.SMS.send({
-          to: phoneNumber,
-          message: `Welcome to Gkash ${name}! Your ${FUNDS[fund]} account is ready.`,
-          from: "GKASH",
-        });
+        await sendSMS(
+          phoneNumber,
+          `Welcome to Gkash ${name}! Your ${FUNDS[fund]} account is ready.`
+        );
         console.log("Welcome SMS sent");
       } catch (error) {
         console.error("SMS error:", error);
@@ -367,15 +361,14 @@ async function handleInvest(parts, phoneNumber) {
     setBalance(phoneNumber, newBal);
     addTx(phoneNumber, { type: "INVEST", amount });
 
-    // Send investment notification using Africa's Talking
+    // Send investment notification using Tiara Connect
     try {
-      await AfricasTalking.SMS.send({
-        to: phoneNumber,
-        message: `Investment of KES ${toK(
-          amount
-        )} successful. New balance: KES ${toK(newBal)}`,
-        from: "GKASH",
-      });
+      await sendSMS(
+        phoneNumber,
+        `Investment of KES ${toK(amount)} successful. New balance: KES ${toK(
+          newBal
+        )}`
+      );
       console.log(`Investment SMS sent to ${phoneNumber}`);
     } catch (error) {
       console.error("Error sending investment SMS:", error);
@@ -427,15 +420,14 @@ async function handleWithdraw(parts, phoneNumber) {
     setBalance(phoneNumber, newBal);
     addTx(phoneNumber, { type: "WITHDRAW", amount });
 
-    // Send withdrawal notification using Africa's Talking
+    // Send withdrawal notification using Tiara Connect
     try {
-      await AfricasTalking.SMS.send({
-        to: phoneNumber,
-        message: `Withdrawal of KES ${toK(
-          amount
-        )} successful. New balance: KES ${toK(newBal)}`,
-        from: "GKASH",
-      });
+      await sendSMS(
+        phoneNumber,
+        `Withdrawal of KES ${toK(amount)} successful. New balance: KES ${toK(
+          newBal
+        )}`
+      );
       console.log(`Withdrawal SMS sent to ${phoneNumber}`);
     } catch (error) {
       console.error("Error sending withdrawal SMS:", error);
@@ -546,12 +538,35 @@ app.post("/ussd", async (req, res) => {
 
     // Clean and parse the text
     const cleaned = String(text).trim();
-    const parts = cleaned.split("*");
+    let parts = cleaned.split("*");
 
     console.log(">>> Cleaned text:", cleaned);
-    console.log(">>> Split parts:", JSON.stringify(parts));
+    console.log(">>> Split parts BEFORE filter:", JSON.stringify(parts));
+
+    // Remove the short code if included
+    // Tiara may send: "710*56789" or "710*56789*1" etc
+    // We need to extract only the user input after the short code
+    if (parts.length >= 2 && parts[0] === "710" && parts[1] === "56789") {
+      // Remove the service code parts (710 and 56789)
+      parts = parts.slice(2); // Skip "710" and "56789"
+    }
+
+    // If no user input yet (just dialed the USSD code)
+    if (parts.length === 0 || (parts.length === 1 && parts[0] === "")) {
+      parts = []; // Empty array signals initial request
+    }
+
+    console.log(">>> Split parts AFTER filter:", JSON.stringify(parts));
     console.log(">>> Number of parts:", parts.length);
     console.log(">>> First choice:", parts[0]);
+
+    // If no parts or first part is empty, show welcome menu
+    if (parts.length === 0 || parts[0] === "") {
+      console.log(">>> INITIAL REQUEST - Showing welcome menu");
+      const menu = welcomeMenu();
+      console.log(">>> Sending:", menu);
+      return res.send(menu);
+    }
 
     const choice = parts[0];
     let response;
