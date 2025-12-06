@@ -10,6 +10,7 @@
 require("dotenv").config();
 const express = require("express");
 const { sendSMS } = require("./tiaraService");
+const { initiateSTKPush } = require("./mpesaService");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -474,5 +475,93 @@ app.get("/", (_req, res) =>
     .type("text")
     .send("Gkash USSD service is running. POST /ussd with USSD payload.")
 );
+
+// M-Pesa STK Push endpoint - trigger payment prompt on phone
+app.post("/api/mpesa/stkpush", async (req, res) => {
+  try {
+    const { phone, amount, accountId, accountReference } = req.body;
+
+    if (!phone || !amount || !accountId) {
+      return res.status(400).json({
+        success: false,
+        message: "phone, amount, and accountId are required",
+      });
+    }
+
+    const result = await initiateSTKPush(
+      phone,
+      amount,
+      accountReference || accountId,
+      `Deposit to ${accountId}`
+    );
+
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: "STK Push initiated. Check your phone for payment prompt.",
+        data: result.data,
+      });
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Failed to initiate STK Push",
+        error: result.error,
+      });
+    }
+  } catch (err) {
+    console.error("STK Push API error", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// M-Pesa Callback endpoint - receive payment confirmation
+app.post("/mpesa/callback", (req, res) => {
+  try {
+    const body = req.body;
+    console.log("M-Pesa Callback received:", body);
+
+    // Log callback for debugging
+    if (body.Body && body.Body.stkCallback) {
+      const callbackData = body.Body.stkCallback;
+      const resultCode = callbackData.ResultCode;
+      const resultDesc = callbackData.ResultDesc;
+      const amount = callbackData.CallbackMetadata?.Item?.find(
+        (i) => i.Name === "Amount"
+      )?.Value;
+      const mpesaRef = callbackData.CallbackMetadata?.Item?.find(
+        (i) => i.Name === "MpesaReceiptNumber"
+      )?.Value;
+      const phone = callbackData.CallbackMetadata?.Item?.find(
+        (i) => i.Name === "PhoneNumber"
+      )?.Value;
+
+      console.log(`Payment ${resultCode === 0 ? "SUCCESS" : "FAILED"}:`);
+      console.log(`  Phone: ${phone}`);
+      console.log(`  Amount: ${amount}`);
+      console.log(`  M-Pesa Ref: ${mpesaRef}`);
+      console.log(`  Description: ${resultDesc}`);
+
+      // TODO: Update user balance in database if resultCode === 0
+      if (resultCode === 0) {
+        console.log("Payment confirmed - update account balance here");
+      }
+    }
+
+    // Return success to M-Pesa (required)
+    return res.json({
+      ResultCode: 0,
+      ResultDesc: "Accepted",
+    });
+  } catch (err) {
+    console.error("M-Pesa callback error", err);
+    return res.status(500).json({
+      ResultCode: 1,
+      ResultDesc: "Error processing callback",
+    });
+  }
+});
 
 app.listen(PORT, () => console.log(`USSD server listening on port ${PORT}`));

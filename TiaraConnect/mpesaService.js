@@ -10,6 +10,15 @@ const CONSUMER_SECRET =
   process.env.MPESA_CONSUMER_SECRET ||
   "qPUpuMPe8ouiKsDIkp6sTsAHpzDMAWjqfAG4haY8dSgjj0b9mQFGB39iZA7AynyZ";
 const MPESA_ENV = (process.env.MPESA_ENV || "sandbox").toLowerCase(); // 'sandbox' or 'production'
+const MPESA_BUSINESS_SHORTCODE = process.env.MPESA_SHORTCODE || "174379";
+const MPESA_PASSKEY =
+  process.env.MPESA_PASSKEY ||
+  "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919";
+const MPESA_INITIATOR_NAME = process.env.MPESA_INITIATOR_NAME || "testapi";
+const MPESA_INITIATOR_PASSWORD =
+  process.env.MPESA_INITIATOR_PASSWORD || "Safaricom123!!";
+const MPESA_PARTY_A = process.env.MPESA_PARTY_A || "600990";
+const MPESA_PARTY_B = process.env.MPESA_PARTY_B || "600000";
 
 // M-Pesa API endpoints (switch based on environment)
 const MPESA_AUTH_URL =
@@ -26,15 +35,7 @@ const MPESA_B2C_URL =
     : "https://sandbox.safaricom.co.ke/mpesa/b2c/v1/paymentrequest";
 const MPESA_CALLBACK_URL =
   process.env.MPESA_CALLBACK_URL ||
-  "https://your-callback-url.com/mpesa/callback";
-const MPESA_PASSKEY = process.env.MPESA_PASSKEY || "YOUR_MPESA_PASSKEY";
-const MPESA_SHORTCODE = process.env.MPESA_SHORTCODE || "YOUR_MPESA_SHORTCODE";
-const MPESA_INITIATOR_NAME =
-  process.env.MPESA_INITIATOR_NAME || "YOUR_INITIATOR_NAME";
-const MPESA_INITIATOR_PASSWORD =
-  process.env.MPESA_INITIATOR_PASSWORD || process.env.MPESA_INITIATOR_PWD || "";
-const MPESA_PUBLIC_KEY =
-  process.env.MPESA_PUBLIC_KEY || process.env.MPESA_CERT || "";
+  "https://tiara-connect-otp.onrender.com/mpesa/callback";
 
 // Generate security credential (for B2C)
 function generateSecurityCredential() {
@@ -102,7 +103,7 @@ async function initiateSTKPush(phone, amount, accountReference, description) {
       .replace(/[^0-9]/g, "")
       .slice(0, -3);
     const password = generatePassword(
-      MPESA_SHORTCODE,
+      MPESA_BUSINESS_SHORTCODE,
       MPESA_PASSKEY,
       timestamp
     );
@@ -110,13 +111,13 @@ async function initiateSTKPush(phone, amount, accountReference, description) {
     const response = await axios.post(
       MPESA_STKPUSH_URL,
       {
-        BusinessShortCode: MPESA_SHORTCODE,
+        BusinessShortCode: MPESA_BUSINESS_SHORTCODE,
         Password: password,
         Timestamp: timestamp,
         TransactionType: "CustomerPayBillOnline",
         Amount: amount,
         PartyA: phone,
-        PartyB: MPESA_SHORTCODE,
+        PartyB: MPESA_BUSINESS_SHORTCODE,
         PhoneNumber: phone,
         CallBackURL: MPESA_CALLBACK_URL,
         AccountReference: accountReference,
