@@ -1,0 +1,86 @@
+nohup: ignoring input
+[dotenv@17.2.3] injecting env (3) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+USSD server listening on port 3000
+
+========== NEW USSD REQUEST ==========
+Raw request body: {
+  "sessionId": "1",
+  "serviceCode": "*710*56789#",
+  "phoneNumber": "+254743177132",
+  "text": "710*56789*1"
+}
+Session ID: 1
+Service Code: *710*56789#
+Phone Number (raw): +254743177132
+Text: 710*56789*1
+Text type: string
+Text length: 11
+======================================
+
+Normalized phone: +254743177132
+>>> Cleaned text: 710*56789*1
+>>> Split parts BEFORE filter: ["710","56789","1"]
+>>> Split parts AFTER filter: ["1"]
+>>> Number of parts: 1
+>>> First choice: 1
+>>> OPTION 1 SELECTED - Create Account
+
+--- handleCreateAccount START ---
+Parts: ["1"]
+Parts length: 1
+Phone: +254743177132
+Existing user - redirecting Create flow to Invest flow
+
+--- handleInvest START ---
+Parts: ["2"]
+Phone: +254743177132
+--- handleInvest END ---
+
+--- handleCreateAccount END ---
+
+>>> FINAL RESPONSE: CON Enter amount to invest (KES)
+>>> Response length: 32
+========== END REQUEST ==========
+
+
+========== NEW USSD REQUEST ==========
+Raw request body: {
+  "sessionId": "1",
+  "serviceCode": "*710*56789#",
+  "phoneNumber": "+254743177132",
+  "text": "710*56789*1"
+}
+Session ID: 1
+Service Code: *710*56789#
+Phone Number (raw): +254743177132
+Text: 710*56789*1
+Text type: string
+Text length: 11
+======================================
+
+Normalized phone: +254743177132
+>>> Cleaned text: 710*56789*1
+>>> Split parts BEFORE filter: ["710","56789","1"]
+>>> Split parts AFTER filter: ["1"]
+>>> Number of parts: 1
+>>> First choice: 1
+>>> OPTION 1 SELECTED - Create Account
+
+--- handleCreateAccount START ---
+Parts: ["1"]
+Parts length: 1
+Phone: +254743177132
+Existing user - redirecting Create flow to Invest flow
+
+--- handleInvest START ---
+Parts: ["2"]
+Phone: +254743177132
+--- handleInvest END ---
+
+--- handleCreateAccount END ---
+
+>>> FINAL RESPONSE: CON Enter amount to invest (KES)
+>>> Response length: 32
+========== END REQUEST ==========
+

@@ -84,9 +84,67 @@ const FUNDS = {
   4: "Stock Market",
 };
 
-const users = new Map(); // phone -> { name, idNumber, pin, fund }
-const balances = new Map(); // phone -> number
-const transactions = new Map(); // phone -> [{ type: 'INVEST'|'WITHDRAW', amount, at }]
+const users = new Map(); // phone -> { name, idNumber, pin, defaultAccountId, accounts: { accountId: { fund, name } } }
+const balances = new Map(); // phone -> number (legacy fallback)
+const accounts = new Map(); // accountId -> { id, phone, fund, name, balance, createdAt }
+const transactions = new Map(); // accountId -> [{ type, amount, createdAt }]
+
+function generateAccountId() {
+  return "GK" + Math.floor(10000000 + Math.random() * 90000000);
+}
+
+function getUserAccounts(phone) {
+  return Array.from(accounts.values()).filter((a) => a.phone === phone);
+}
+
+function createAccount(phone, fundKey, accountName) {
+  const id = generateAccountId();
+  const acc = {
+    id,
+    phone,
+    fund: FUNDS[fundKey],
+    name:
+      accountName ||
+      `${FUNDS[fundKey]} ${Math.floor(1000 + Math.random() * 9000)}`,
+    balance: 0,
+    createdAt: new Date(),
+  };
+  accounts.set(id, acc);
+  const user = users.get(phone) || { phone, accounts: {} };
+  user.accounts = user.accounts || {};
+  user.accounts[id] = { fund: fundKey };
+  if (!user.defaultAccountId) user.defaultAccountId = id;
+  users.set(phone, user);
+  return acc;
+}
+
+function addTxForAccount(accountId, tx) {
+  const list = transactions.get(accountId) || [];
+  list.unshift({ ...tx, createdAt: new Date() });
+  transactions.set(accountId, list.slice(0, 20));
+}
+
+function showUserAccountsForOperation(phoneNumber, prompt) {
+  const userAccounts = getUserAccounts(phoneNumber);
+  if (userAccounts.length === 0)
+    return "END No accounts found. Please create an account first.";
+  let response = "CON " + (prompt || "Select account:") + "\n";
+  userAccounts.forEach((acc, idx) => {
+    response += `${idx + 1}. ${acc.name} (${acc.id})\n`;
+  });
+  return response;
+}
+
+function resolveSelectedAccount(phoneNumber, parts) {
+  const userAccounts = getUserAccounts(phoneNumber);
+  if (userAccounts.length <= 1)
+    return { account: userAccounts[0] || null, offset: 1 };
+  const sel = parts[1];
+  const idx = parseInt(sel, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= userAccounts.length)
+    return { account: null, offset: 1 };
+  return { account: userAccounts[idx], offset: 2 };
+}
 
 function getBalance(phone) {
   return balances.get(phone) || 0;
@@ -144,6 +202,13 @@ async function handleCreateAccount(parts, phoneNumber) {
   console.log("Phone:", phoneNumber);
 
   try {
+    // If the phone already has a user, treat this selection as a shortcut to Invest
+    if (users.has(phoneNumber)) {
+      console.log("Existing user - redirecting Create flow to Invest flow");
+      // Remap parts so invest handler sees choice '2' as the first part
+      const investParts = ["2", ...parts.slice(1)];
+      return await handleInvest(investParts, phoneNumber);
+    }
     // Step 1: Show fund menu
     if (parts.length === 1) {
       console.log("STEP 1: Showing fund selection");
@@ -280,34 +345,56 @@ async function handleCreateAccount(parts, phoneNumber) {
         return `CON ${verification.message}\nTry again:`;
       }
 
-      // Create account
+      // Create account (attach to existing user if present)
       console.log("Creating account...");
+      const existingUser = users.get(phoneNumber);
+
+      if (existingUser) {
+        // add another account for this user
+        const acc = createAccount(
+          phoneNumber,
+          fund,
+          `${existingUser.name}'s ${FUNDS[fund]} ${
+            Object.keys(existingUser.accounts || {}).length + 1
+          }`
+        );
+        addTxForAccount(acc.id, { type: "ACCOUNT_CREATED", amount: 0 });
+        console.log("New account added for existing user:", acc);
+        try {
+          await sendSMS(
+            phoneNumber,
+            `New ${FUNDS[fund]} account created: ${acc.id}`
+          );
+        } catch (err) {
+          console.error("SMS error:", err);
+        }
+        return `END New ${FUNDS[fund]} account created successfully!\nAccount No: ${acc.id}`;
+      }
+
+      // New user - create user and first account
+      const acc = createAccount(phoneNumber, fund, `${name}'s ${FUNDS[fund]}`);
       users.set(phoneNumber, {
         name: name.trim(),
         idNumber,
         pin,
-        fund: FUNDS[fund],
+        defaultAccountId: acc.id,
+        accounts: { [acc.id]: { fund } },
       });
 
-      if (!balances.has(phoneNumber)) {
-        setBalance(phoneNumber, 0);
-      }
-
-      addTx(phoneNumber, { type: "ACCOUNT_CREATED", amount: 0 });
-      console.log("Account created successfully");
+      addTxForAccount(acc.id, { type: "ACCOUNT_CREATED", amount: 0 });
+      console.log("Account created successfully:", acc);
 
       // Send SMS
       try {
         await sendSMS(
           phoneNumber,
-          `Welcome to Gkash ${name}! Your ${FUNDS[fund]} account is ready.`
+          `Welcome to Gkash ${name}! Your ${FUNDS[fund]} account is ready. Account No: ${acc.id}`
         );
-        console.log("Welcome SMS sent");
       } catch (error) {
         console.error("SMS error:", error);
       }
 
-      return welcomeMenu();
+      return `END Registration successful!\nYour ${FUNDS[fund]} has been created.\nAccount No: ${acc.id}`;
     }
 
     console.log("Unexpected parts length:", parts.length);
@@ -336,32 +423,66 @@ async function handleInvest(parts, phoneNumber) {
   console.log("\n--- handleInvest START ---");
   console.log("Parts:", JSON.stringify(parts));
   console.log("Phone:", phoneNumber);
-
   try {
-    // parts: ['2', amount?, pin?]
-    if (parts.length === 1) {
-      return "CON Enter amount to invest (KES)";
+    // Support multiple accounts: if user has >1 account, ask to select first
+    const userAccounts = getUserAccounts(phoneNumber);
+
+    if (userAccounts.length > 1 && parts.length === 1) {
+      return showUserAccountsForOperation(
+        phoneNumber,
+        "Select account to invest into"
+      );
     }
 
-    const amount = Number(parts[1]);
-    if (!Number.isFinite(amount) || amount <= 0) {
+    const { account, offset } = resolveSelectedAccount(phoneNumber, parts);
+    if (userAccounts.length > 1 && !account) {
+      return showUserAccountsForOperation(
+        phoneNumber,
+        "Select account to invest into"
+      );
+    }
+
+    // If single account or after selection, proceed
+    if (parts.length === 1) return "CON Enter amount to invest (KES)";
+
+    const idx = offset;
+    const amount = Number(parts[idx]);
+    if (!Number.isFinite(amount) || amount <= 0)
       return "CON Invalid amount. Enter a positive number (KES)";
-    }
 
-    if (parts.length === 2) {
-      return "CON Enter your PIN";
-    }
+    if (parts.length === idx + 1) return "CON Enter your PIN";
 
-    const pin = parts[2];
+    const pin = parts[idx + 1];
     const { user, error } = requireExistingUser(phoneNumber);
     if (error) return error;
     if (user.pin !== pin) return "END Invalid PIN";
 
+    // Apply to selected account (or fallback to phone-level balance)
+    if (account) {
+      account.balance = (account.balance || 0) + amount;
+      addTxForAccount(account.id, { type: "DEPOSIT", amount });
+      try {
+        await sendSMS(
+          phoneNumber,
+          `Investment of KES ${toK(amount)} successful. New balance: KES ${toK(
+            account.balance
+          )}`
+        );
+      } catch (e) {
+        console.error(e);
+      }
+      return (
+        `Investment of KES ${toK(amount)} into ${
+          account.name
+        } successful.\nNew balance: KES ${toK(account.balance)}\n` +
+        welcomeMenu()
+      );
+    }
+
+    // Legacy single-balance fallback
     const newBal = getBalance(phoneNumber) + amount;
     setBalance(phoneNumber, newBal);
     addTx(phoneNumber, { type: "INVEST", amount });
-
-    // Send investment notification using Tiara Connect
     try {
       await sendSMS(
         phoneNumber,
@@ -369,15 +490,14 @@ async function handleInvest(parts, phoneNumber) {
           newBal
         )}`
       );
-      console.log(`Investment SMS sent to ${phoneNumber}`);
-    } catch (error) {
-      console.error("Error sending investment SMS:", error);
+    } catch (e) {
+      console.error(e);
     }
-
-    const successMessage = `Investment of KES ${toK(amount)} into ${
-      user.fund
-    } successful.\nNew balance: KES ${toK(newBal)}\nSMS confirmation sent.\n\n`;
-    return successMessage + welcomeMenu();
+    return (
+      `Investment of KES ${toK(amount)} successful.\nNew balance: KES ${toK(
+        newBal
+      )}\n` + welcomeMenu()
+    );
   } catch (error) {
     console.error("!!! handleInvest ERROR !!!", error);
     return "END Error processing investment. Try again.";
@@ -519,11 +639,25 @@ app.post("/ussd", async (req, res) => {
     console.log("Raw request body:", JSON.stringify(req.body, null, 2));
     console.log("Session ID:", sessionId);
     console.log("Service Code:", serviceCode);
-    console.log("Phone Number:", phoneNumber);
+    console.log("Phone Number (raw):", phoneNumber);
     console.log("Text:", text);
     console.log("Text type:", typeof text);
     console.log("Text length:", text ? text.length : 0);
     console.log("======================================\n");
+
+    // Normalize phone number (Tiara may send '+' as space in form-encoding)
+    let normalizedPhone = String(phoneNumber || "").trim();
+    // Remove any spaces that may have replaced '+' in form encoding
+    normalizedPhone = normalizedPhone.replace(/\s+/g, "");
+    if (/^0\d+/.test(normalizedPhone)) {
+      normalizedPhone = "+254" + normalizedPhone.slice(1);
+    } else if (/^254\d+/.test(normalizedPhone)) {
+      normalizedPhone = "+" + normalizedPhone;
+    } else if (!normalizedPhone.startsWith("+")) {
+      // leave as-is
+    }
+
+    console.log("Normalized phone:", normalizedPhone);
 
     // Set content type
     res.set("Content-Type", "text/plain");
@@ -570,27 +704,26 @@ app.post("/ussd", async (req, res) => {
 
     const choice = parts[0];
     let response;
-
     switch (choice) {
       case "1":
         console.log(">>> OPTION 1 SELECTED - Create Account");
-        response = await handleCreateAccount(parts, phoneNumber);
+        response = await handleCreateAccount(parts, normalizedPhone);
         break;
       case "2":
         console.log(">>> OPTION 2 SELECTED - Invest");
-        response = await handleInvest(parts, phoneNumber);
+        response = await handleInvest(parts, normalizedPhone);
         break;
       case "3":
         console.log(">>> OPTION 3 SELECTED - Withdraw");
-        response = await handleWithdraw(parts, phoneNumber);
+        response = await handleWithdraw(parts, normalizedPhone);
         break;
       case "4":
         console.log(">>> OPTION 4 SELECTED - Check Balance");
-        response = handleCheckBalance(parts, phoneNumber);
+        response = handleCheckBalance(parts, normalizedPhone);
         break;
       case "5":
         console.log(">>> OPTION 5 SELECTED - Track Account");
-        response = handleTrackAccount(parts, phoneNumber);
+        response = handleTrackAccount(parts, normalizedPhone);
         break;
       default:
         console.log(">>> INVALID CHOICE:", choice);
@@ -669,6 +802,50 @@ app.post("/api/auth/verify-otp", (req, res) => {
       success: false,
       message: "Internal server error",
     });
+  }
+});
+
+// Temporary debug endpoint: seed a user (for local testing only)
+// POST /debug/seed-user
+// body: { phone, name, pin, fundKey }
+app.post("/debug/seed-user", (req, res) => {
+  try {
+    const { phone, name, pin, fundKey } = req.body;
+    if (!phone)
+      return res
+        .status(400)
+        .json({ success: false, message: "phone is required" });
+    // normalize phone to +254 format if starts with 0
+    let phoneNorm = String(phone).trim();
+    if (/^0\d+/.test(phoneNorm)) phoneNorm = "+254" + phoneNorm.slice(1);
+    if (!phoneNorm.startsWith("+")) phoneNorm = phoneNorm;
+
+    if (users.has(phoneNorm)) {
+      return res.json({
+        success: false,
+        message: "user already exists",
+        phone: phoneNorm,
+      });
+    }
+
+    const fk = fundKey || "1";
+    const acc = createAccount(
+      phoneNorm,
+      fk,
+      `${name || "Test User"}'s ${FUNDS[fk]}`
+    );
+    users.set(phoneNorm, {
+      name: (name || "Test User").trim(),
+      idNumber: "00000000",
+      pin: pin || "1234",
+      defaultAccountId: acc.id,
+      accounts: { [acc.id]: { fund: fk } },
+    });
+    addTxForAccount(acc.id, { type: "SEED", amount: 0 });
+    return res.json({ success: true, phone: phoneNorm, account: acc });
+  } catch (err) {
+    console.error("Seed user error", err);
+    return res.status(500).json({ success: false, message: "internal error" });
   }
 });
 
