@@ -105,23 +105,6 @@ The USSD session stays open, allowing users to perform multiple transactions!
 
 ---
 
-## Test It
-
-Run these commands to verify:
-
-```bash
-# Start server
-cd /home/rhodah/Desktop/gkash-ussd/TiaraConnect
-node server.js
-
-# In another terminal, test all options
-cd /home/rhodah/Desktop/gkash-ussd
-node test-tiara-real.js          # Create account
-node test-complete-flow.js       # Test all options
-```
-
----
-
 ## Conclusion
 
 ✅ **All 5 menu options provide complete end-to-end functionality**
@@ -129,4 +112,3 @@ node test-complete-flow.js       # Test all options
 ✅ **Sessions continue until the user explicitly hangs up**
 ✅ **Users can chain multiple transactions in one session**
 
-Your USSD is **production-ready**! 🎉
