@@ -1,6 +1,6 @@
 nohup: ignoring input
-[dotenv@17.2.3] injecting env (3) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
-[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (3) from .env -- tip: 🔑 add access controls to secrets: https://dotenvx.com/ops
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ✅ audit secrets and track compliance: https://dotenvx.com/ops
 USSD server listening on port 3000
 
 ========== NEW USSD REQUEST ==========
@@ -8,39 +8,26 @@ Raw request body: {
   "sessionId": "1",
   "serviceCode": "*710*56789#",
   "phoneNumber": "+254743177132",
-  "text": "710*56789*1"
+  "text": "710*56789*6"
 }
 Session ID: 1
 Service Code: *710*56789#
 Phone Number (raw): +254743177132
-Text: 710*56789*1
+Text: 710*56789*6
 Text type: string
 Text length: 11
 ======================================
 
 Normalized phone: +254743177132
->>> Cleaned text: 710*56789*1
->>> Split parts BEFORE filter: ["710","56789","1"]
->>> Split parts AFTER filter: ["1"]
+>>> Cleaned text: 710*56789*6
+>>> Split parts BEFORE filter: ["710","56789","6"]
+>>> Split parts AFTER filter: ["6"]
 >>> Number of parts: 1
->>> First choice: 1
->>> OPTION 1 SELECTED - Create Account
-
---- handleCreateAccount START ---
-Parts: ["1"]
-Parts length: 1
-Phone: +254743177132
-Existing user - redirecting Create flow to Invest flow
-
---- handleInvest START ---
-Parts: ["2"]
-Phone: +254743177132
---- handleInvest END ---
-
---- handleCreateAccount END ---
-
->>> FINAL RESPONSE: CON Enter amount to invest (KES)
->>> Response length: 32
+>>> First choice: 6
+>>> OPTION 6 SELECTED - Manage Accounts
+>>> FINAL RESPONSE: CON You have no accounts.
+1. Create account
+>>> Response length: 43
 ========== END REQUEST ==========
 
 
@@ -49,19 +36,169 @@ Raw request body: {
   "sessionId": "1",
   "serviceCode": "*710*56789#",
   "phoneNumber": "+254743177132",
-  "text": "710*56789*1"
+  "text": "710*56789*6"
 }
 Session ID: 1
 Service Code: *710*56789#
 Phone Number (raw): +254743177132
-Text: 710*56789*1
+Text: 710*56789*6
 Text type: string
 Text length: 11
 ======================================
 
 Normalized phone: +254743177132
->>> Cleaned text: 710*56789*1
->>> Split parts BEFORE filter: ["710","56789","1"]
+>>> Cleaned text: 710*56789*6
+>>> Split parts BEFORE filter: ["710","56789","6"]
+>>> Split parts AFTER filter: ["6"]
+>>> Number of parts: 1
+>>> First choice: 6
+>>> OPTION 6 SELECTED - Manage Accounts
+>>> FINAL RESPONSE: CON Manage accounts:
+1. Rhodah Test's Money Market Fund (GK12570209)
+2. Create new account
+>>> Response length: 90
+========== END REQUEST ==========
+
+
+========== NEW USSD REQUEST ==========
+Raw request body: {
+  "sessionId": "1",
+  "serviceCode": "*710*56789#",
+  "phoneNumber": "+254743177132",
+  "text": "710*56789*6*2"
+}
+Session ID: 1
+Service Code: *710*56789#
+Phone Number (raw): +254743177132
+Text: 710*56789*6*2
+Text type: string
+Text length: 13
+======================================
+
+Normalized phone: +254743177132
+>>> Cleaned text: 710*56789*6*2
+>>> Split parts BEFORE filter: ["710","56789","6","2"]
+>>> Split parts AFTER filter: ["6","2"]
+>>> Number of parts: 2
+>>> First choice: 6
+>>> OPTION 6 SELECTED - Manage Accounts
+
+--- handleCreateAccount START ---
+Parts: ["1"]
+Parts length: 1
+Phone: +254743177132
+STEP 1: Showing fund selection
+>>> fundMenu called with prefix: 
+>>> Generated fund menu: CON Select fund type:
+1. Money Market Fund
+2. Fixed Income Fund
+3. Balanced Fund
+4. Stock Market
+Returning menu: CON Select fund type:
+1. Money Market Fund
+2. Fixed Income Fund
+3. Balanced Fund
+4. Stock Market
+--- handleCreateAccount END ---
+
+>>> FINAL RESPONSE: CON Select fund type:
+1. Money Market Fund
+2. Fixed Income Fund
+3. Balanced Fund
+4. Stock Market
+>>> Response length: 96
+========== END REQUEST ==========
+
+
+========== NEW USSD REQUEST ==========
+Raw request body: {
+  "phoneNumber": "+254700111222",
+  "text": "1"
+}
+Session ID: undefined
+Service Code: undefined
+Phone Number (raw): +254700111222
+Text: 1
+Text type: string
+Text length: 1
+======================================
+
+Normalized phone: +254700111222
+>>> Cleaned text: 1
+>>> Split parts BEFORE filter: ["1"]
+>>> Split parts AFTER filter: ["1"]
+>>> Number of parts: 1
+>>> First choice: 1
+>>> OPTION 1 SELECTED - Create Account
+User exists - forwarding option 1 to Invest
+
+--- handleInvest START ---
+Parts: ["1"]
+Phone: +254700111222
+--- handleInvest END ---
+
+>>> FINAL RESPONSE: CON Enter amount to invest (KES)
+>>> Response length: 32
+========== END REQUEST ==========
+
+
+========== NEW USSD REQUEST ==========
+Raw request body: {
+  "phoneNumber": "+254700111222",
+  "text": "1*1"
+}
+Session ID: undefined
+Service Code: undefined
+Phone Number (raw): +254700111222
+Text: 1*1
+Text type: string
+Text length: 3
+======================================
+
+Normalized phone: +254700111222
+>>> Cleaned text: 1*1
+>>> Split parts BEFORE filter: ["1","1"]
+>>> Split parts AFTER filter: ["1","1"]
+>>> Number of parts: 2
+>>> First choice: 1
+>>> OPTION 1 SELECTED - Create Account
+
+--- handleCreateAccount START ---
+Parts: ["1","1"]
+Parts length: 2
+Phone: +254700111222
+STEP 2: Fund selection = 1
+FUNDS object: {
+  '1': 'Money Market Fund',
+  '2': 'Fixed Income Fund',
+  '3': 'Balanced Fund',
+  '4': 'Stock Market'
+}
+Is valid fund? true
+Valid fund: Money Market Fund
+--- handleCreateAccount END ---
+
+>>> FINAL RESPONSE: CON Enter your full name
+>>> Response length: 24
+========== END REQUEST ==========
+
+
+========== NEW USSD REQUEST ==========
+Raw request body: {
+  "phoneNumber": "+254799888777",
+  "text": "1"
+}
+Session ID: undefined
+Service Code: undefined
+Phone Number (raw): +254799888777
+Text: 1
+Text type: string
+Text length: 1
+======================================
+
+Normalized phone: +254799888777
+>>> Cleaned text: 1
+>>> Split parts BEFORE filter: ["1"]
 >>> Split parts AFTER filter: ["1"]
 >>> Number of parts: 1
 >>> First choice: 1
@@ -70,17 +207,67 @@ Normalized phone: +254743177132
 --- handleCreateAccount START ---
 Parts: ["1"]
 Parts length: 1
-Phone: +254743177132
-Existing user - redirecting Create flow to Invest flow
-
---- handleInvest START ---
-Parts: ["2"]
-Phone: +254743177132
---- handleInvest END ---
-
+Phone: +254799888777
+STEP 1: Showing fund selection
+>>> fundMenu called with prefix: 
+>>> Generated fund menu: CON Select fund type:
+1. Money Market Fund
+2. Fixed Income Fund
+3. Balanced Fund
+4. Stock Market
+Returning menu: CON Select fund type:
+1. Money Market Fund
+2. Fixed Income Fund
+3. Balanced Fund
+4. Stock Market
 --- handleCreateAccount END ---
 
->>> FINAL RESPONSE: CON Enter amount to invest (KES)
->>> Response length: 32
+>>> FINAL RESPONSE: CON Select fund type:
+1. Money Market Fund
+2. Fixed Income Fund
+3. Balanced Fund
+4. Stock Market
+>>> Response length: 96
+========== END REQUEST ==========
+
+
+========== NEW USSD REQUEST ==========
+Raw request body: {
+  "phoneNumber": "+254700111222",
+  "text": "1*2"
+}
+Session ID: undefined
+Service Code: undefined
+Phone Number (raw): +254700111222
+Text: 1*2
+Text type: string
+Text length: 3
+======================================
+
+Normalized phone: +254700111222
+>>> Cleaned text: 1*2
+>>> Split parts BEFORE filter: ["1","2"]
+>>> Split parts AFTER filter: ["1","2"]
+>>> Number of parts: 2
+>>> First choice: 1
+>>> OPTION 1 SELECTED - Create Account
+
+--- handleCreateAccount START ---
+Parts: ["1","2"]
+Parts length: 2
+Phone: +254700111222
+STEP 2: Fund selection = 2
+FUNDS object: {
+  '1': 'Money Market Fund',
+  '2': 'Fixed Income Fund',
+  '3': 'Balanced Fund',
+  '4': 'Stock Market'
+}
+Is valid fund? true
+Valid fund: Fixed Income Fund
+--- handleCreateAccount END ---
+
+>>> FINAL RESPONSE: CON Enter your full name
+>>> Response length: 24
 ========== END REQUEST ==========
 

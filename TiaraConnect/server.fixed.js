@@ -212,7 +212,8 @@ async function handleInvest(parts, phone) {
   const { account, offset } = resolveSelectedAccount(phone, parts);
   if (userAccounts.length > 1 && !account)
     return showUserAccountsForOperation(phone, "Select account to invest into");
-  if (parts.length === offset) return "CON Enter amount to invest (KES)";
+  if (parts.length === offset - 1 || parts.length === 1)
+    return "CON Enter amount to invest (KES)";
   const idx = offset;
   const amount = Number(parts[idx]);
   if (!Number.isFinite(amount) || amount <= 0)
@@ -257,7 +258,8 @@ async function handleWithdraw(parts, phone) {
       phone,
       "Select account to withdraw from"
     );
-  if (parts.length === offset) return "CON Enter amount to withdraw (KES)";
+  if (parts.length === offset - 1 || parts.length === 1)
+    return "CON Enter amount to withdraw (KES)";
   const idx = offset;
   const amount = Number(parts[idx]);
   if (!Number.isFinite(amount) || amount <= 0)
