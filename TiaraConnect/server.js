@@ -748,9 +748,32 @@ app.post("/api/otp/verify", async (req, res) => {
   }
 });
 
+// Store recent USSD requests for debugging
+const recentRequests = [];
+const MAX_REQUESTS = 20;
+
+// Debug endpoint to view recent USSD requests
+app.get("/debug/recent-requests", (req, res) => {
+  res.json({
+    count: recentRequests.length,
+    requests: recentRequests
+  });
+});
+
 // USSD endpoint
 app.post("/ussd", async (req, res) => {
   try {
+    // Store request for debugging
+    recentRequests.unshift({
+      timestamp: new Date().toISOString(),
+      headers: req.headers,
+      body: req.body,
+      query: req.query
+    });
+    if (recentRequests.length > MAX_REQUESTS) {
+      recentRequests.pop();
+    }
+
     // Enhanced logging for debugging real phone issues
     console.log("=== USSD Request Received ===");
     console.log("Headers:", JSON.stringify(req.headers, null, 2));
