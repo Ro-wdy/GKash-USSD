@@ -9,6 +9,8 @@
 
 require("dotenv").config();
 const express = require("express");
+const fs = require("fs");
+const path = require("path");
 const { sendSMS, sendOTP, generateOTP } = require("./tiaraService");
 const { initiateSTKPush, initiateB2CPayment } = require("./mpesaService");
 
@@ -18,11 +20,96 @@ const PORT = process.env.PORT || 3000;
 app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
-// In-memory stores (replace with DB in production)
+// Data persistence file paths
+const DATA_DIR = path.join(__dirname, "data");
+const USERS_FILE = path.join(DATA_DIR, "users.json");
+const ACCOUNTS_FILE = path.join(DATA_DIR, "accounts.json");
+const TRANSACTIONS_FILE = path.join(DATA_DIR, "transactions.json");
+
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+
+// Load data from files or initialize empty
+function loadData() {
+  try {
+    if (fs.existsSync(USERS_FILE)) {
+      const usersData = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+      Object.entries(usersData).forEach(([key, value]) =>
+        users.set(key, value)
+      );
+      console.log(`[Persistence] Loaded ${users.size} users`);
+    }
+    if (fs.existsSync(ACCOUNTS_FILE)) {
+      const accountsData = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, "utf8"));
+      Object.entries(accountsData).forEach(([key, value]) =>
+        accounts.set(key, value)
+      );
+      console.log(`[Persistence] Loaded ${accounts.size} accounts`);
+    }
+    if (fs.existsSync(TRANSACTIONS_FILE)) {
+      const transactionsData = JSON.parse(
+        fs.readFileSync(TRANSACTIONS_FILE, "utf8")
+      );
+      Object.entries(transactionsData).forEach(([key, value]) =>
+        transactions.set(key, value)
+      );
+      console.log(
+        `[Persistence] Loaded ${
+          Object.keys(transactionsData).length
+        } transaction histories`
+      );
+    }
+  } catch (error) {
+    console.error("[Persistence] Error loading data:", error);
+  }
+}
+
+// Save data to files
+function saveData() {
+  try {
+    fs.writeFileSync(
+      USERS_FILE,
+      JSON.stringify(Object.fromEntries(users), null, 2)
+    );
+    fs.writeFileSync(
+      ACCOUNTS_FILE,
+      JSON.stringify(Object.fromEntries(accounts), null, 2)
+    );
+    fs.writeFileSync(
+      TRANSACTIONS_FILE,
+      JSON.stringify(Object.fromEntries(transactions), null, 2)
+    );
+  } catch (error) {
+    console.error("[Persistence] Error saving data:", error);
+  }
+}
+
+// Auto-save every 30 seconds
+setInterval(saveData, 30000);
+
+// Save on graceful shutdown
+process.on("SIGTERM", () => {
+  console.log("[Persistence] SIGTERM received, saving data...");
+  saveData();
+  process.exit(0);
+});
+
+process.on("SIGINT", () => {
+  console.log("[Persistence] SIGINT received, saving data...");
+  saveData();
+  process.exit(0);
+});
+
+// In-memory stores with persistence
 const users = new Map(); // phone -> { name, email, pin, defaultAccountId, accounts: { accountId: { fund } } }
 const accounts = new Map(); // accountId -> { id, phone, fund, name, balance, createdAt }
 const transactions = new Map(); // accountId -> [{ type, amount, createdAt }]
 const pendingOTPs = new Map(); // phone -> { otp, expiresAt, data: { fund, name, email, pin, userPhone } }
+
+// Load persisted data on startup
+loadData();
 
 const FUNDS = {
   1: "Money Market Fund",
@@ -60,6 +147,7 @@ function createAccount(phone, fundKey, accountName) {
   if (!user.defaultAccountId) user.defaultAccountId = id;
   users.set(phone, user);
   transactions.set(id, []);
+  saveData(); // Persist data
   return acc;
 }
 
@@ -67,6 +155,7 @@ function addTxForAccount(accountId, tx) {
   const list = transactions.get(accountId) || [];
   list.unshift({ ...tx, createdAt: new Date() });
   transactions.set(accountId, list.slice(0, 20));
+  saveData(); // Persist data
 }
 
 function welcomeMenu() {
@@ -783,11 +872,11 @@ app.post("/ussd", async (req, res) => {
     console.log("============================");
 
     res.set("Content-Type", "text/plain");
-    
+
     // Tiara Connect sends: msisdn, input, serviceCode, sessionId
     // Also support: phone/phoneNumber, text (for testing/other gateways)
     const { phoneNumber, phone, msisdn, text, input } = req.body;
-    
+
     let normalizedPhone = String(msisdn || phoneNumber || phone || "")
       .trim()
       .replace(/\s+/g, "");
@@ -798,8 +887,9 @@ app.post("/ussd", async (req, res) => {
 
     // Use input (Tiara) or text (testing) for user selections
     const userInput = input !== undefined ? input : text;
-    
-    if (!userInput || String(userInput).trim() === "") return res.send(welcomeMenu());
+
+    if (!userInput || String(userInput).trim() === "")
+      return res.send(welcomeMenu());
     let cleaned = String(userInput).trim();
     let parts = cleaned.split("*");
     if (parts.length >= 2 && parts[0] === "710" && parts[1] === "56789")

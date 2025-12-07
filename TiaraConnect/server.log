@@ -1,0 +1,5 @@
+nohup: ignoring input
+[dotenv@17.2.3] injecting env (3) from .env -- tip: ⚙️  enable debug logging with { debug: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: ⚙️  suppress all logs with { quiet: true }
+[dotenv@17.2.3] injecting env (0) from .env -- tip: 🔄 add secrets lifecycle management: https://dotenvx.com/ops
+USSD server listening on port 3000
