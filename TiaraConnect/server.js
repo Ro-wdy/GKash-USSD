@@ -9,7 +9,7 @@
 
 require("dotenv").config();
 const express = require("express");
-const { sendSMS, sendOTP } = require("./tiaraService");
+const { sendSMS, sendOTP, generateOTP } = require("./tiaraService");
 const { initiateSTKPush, initiateB2CPayment } = require("./mpesaService");
 
 const app = express();
@@ -568,9 +568,197 @@ app.post("/debug/seed-user", (req, res) => {
   }
 });
 
+// ===========================
+// Standalone OTP API Endpoints
+// ===========================
+
+// POST /api/otp/send - Generate and send OTP
+app.post("/api/otp/send", async (req, res) => {
+  try {
+    const { phone, name } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        message: "Phone number is required",
+      });
+    }
+
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: "Name is required",
+      });
+    }
+
+    // Normalize phone number
+    let normalizedPhone = String(phone).trim();
+    if (normalizedPhone.startsWith("+")) {
+      normalizedPhone = normalizedPhone.slice(1);
+    }
+    if (normalizedPhone.startsWith("0")) {
+      normalizedPhone = "254" + normalizedPhone.slice(1);
+    }
+    if (!normalizedPhone.startsWith("254")) {
+      normalizedPhone = "254" + normalizedPhone;
+    }
+
+    // Validate phone format
+    const phoneRegex = /^254[17]\d{8}$/;
+    if (!phoneRegex.test(normalizedPhone)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Invalid phone number format. Must be a valid Kenyan number (07xx or 01xx)",
+      });
+    }
+
+    // Generate and send OTP via SMS
+    const smsResult = await sendOTP(normalizedPhone, name);
+
+    if (smsResult && smsResult.success && smsResult.otp) {
+      const otp = smsResult.otp;
+      const expiresAt = Date.now() + 60000; // 60 seconds
+
+      // Store OTP session
+      pendingOTPs.set(normalizedPhone, {
+        otp,
+        expiresAt,
+        name,
+        attempts: 0,
+      });
+
+      return res.json({
+        success: true,
+        message: "OTP sent successfully",
+        phone: normalizedPhone,
+        expiresIn: 60,
+      });
+    } else {
+      // Clean up failed OTP
+      pendingOTPs.delete(normalizedPhone);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to send OTP. Please try again.",
+      });
+    }
+  } catch (error) {
+    console.error("[OTP API] Send error:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// POST /api/otp/verify - Verify OTP code
+app.post("/api/otp/verify", async (req, res) => {
+  try {
+    const { phone, otp } = req.body;
+
+    if (!phone) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: "Phone number is required",
+      });
+    }
+
+    if (!otp) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: "OTP code is required",
+      });
+    }
+
+    // Normalize phone number
+    let normalizedPhone = String(phone).trim();
+    if (normalizedPhone.startsWith("+")) {
+      normalizedPhone = normalizedPhone.slice(1);
+    }
+    if (normalizedPhone.startsWith("0")) {
+      normalizedPhone = "254" + normalizedPhone.slice(1);
+    }
+    if (!normalizedPhone.startsWith("254")) {
+      normalizedPhone = "254" + normalizedPhone;
+    }
+
+    // Get OTP session
+    const otpSession = pendingOTPs.get(normalizedPhone);
+
+    if (!otpSession) {
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: "No OTP session found. Please request a new OTP.",
+      });
+    }
+
+    // Check expiration
+    if (Date.now() > otpSession.expiresAt) {
+      pendingOTPs.delete(normalizedPhone);
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: "OTP has expired. Please request a new one.",
+      });
+    }
+
+    // Check attempts (max 3)
+    if (otpSession.attempts >= 3) {
+      pendingOTPs.delete(normalizedPhone);
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message:
+          "Maximum verification attempts exceeded. Please request a new OTP.",
+      });
+    }
+
+    // Increment attempts
+    otpSession.attempts += 1;
+
+    // Verify OTP
+    if (String(otp).trim() === String(otpSession.otp)) {
+      // OTP is valid - clean up session
+      pendingOTPs.delete(normalizedPhone);
+      return res.json({
+        success: true,
+        valid: true,
+        message: "OTP verified successfully",
+        phone: normalizedPhone,
+      });
+    } else {
+      // Invalid OTP
+      return res.status(400).json({
+        success: false,
+        valid: false,
+        message: `Invalid OTP. ${3 - otpSession.attempts} attempts remaining.`,
+        attemptsRemaining: 3 - otpSession.attempts,
+      });
+    }
+  } catch (error) {
+    console.error("[OTP API] Verify error:", error);
+    return res.status(500).json({
+      success: false,
+      valid: false,
+      message: "Internal server error",
+    });
+  }
+});
+
 // USSD endpoint
 app.post("/ussd", async (req, res) => {
   try {
+    // Enhanced logging for debugging real phone issues
+    console.log("=== USSD Request Received ===");
+    console.log("Headers:", JSON.stringify(req.headers, null, 2));
+    console.log("Body:", JSON.stringify(req.body, null, 2));
+    console.log("Query:", JSON.stringify(req.query, null, 2));
+    console.log("Raw Body:", req.rawBody);
+    console.log("============================");
+
     res.set("Content-Type", "text/plain");
     const { phoneNumber, phone, text } = req.body;
     let normalizedPhone = String(phoneNumber || phone || "")
