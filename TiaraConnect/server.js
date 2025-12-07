@@ -756,7 +756,7 @@ const MAX_REQUESTS = 20;
 app.get("/debug/recent-requests", (req, res) => {
   res.json({
     count: recentRequests.length,
-    requests: recentRequests
+    requests: recentRequests,
   });
 });
 
@@ -768,7 +768,7 @@ app.post("/ussd", async (req, res) => {
       timestamp: new Date().toISOString(),
       headers: req.headers,
       body: req.body,
-      query: req.query
+      query: req.query,
     });
     if (recentRequests.length > MAX_REQUESTS) {
       recentRequests.pop();
@@ -783,8 +783,12 @@ app.post("/ussd", async (req, res) => {
     console.log("============================");
 
     res.set("Content-Type", "text/plain");
-    const { phoneNumber, phone, text } = req.body;
-    let normalizedPhone = String(phoneNumber || phone || "")
+    
+    // Tiara Connect sends: msisdn, input, serviceCode, sessionId
+    // Also support: phone/phoneNumber, text (for testing/other gateways)
+    const { phoneNumber, phone, msisdn, text, input } = req.body;
+    
+    let normalizedPhone = String(msisdn || phoneNumber || phone || "")
       .trim()
       .replace(/\s+/g, "");
     if (/^0\d+/.test(normalizedPhone))
@@ -792,8 +796,11 @@ app.post("/ussd", async (req, res) => {
     else if (/^254\d+/.test(normalizedPhone))
       normalizedPhone = "+" + normalizedPhone;
 
-    if (!text || text.trim() === "") return res.send(welcomeMenu());
-    let cleaned = String(text).trim();
+    // Use input (Tiara) or text (testing) for user selections
+    const userInput = input !== undefined ? input : text;
+    
+    if (!userInput || String(userInput).trim() === "") return res.send(welcomeMenu());
+    let cleaned = String(userInput).trim();
     let parts = cleaned.split("*");
     if (parts.length >= 2 && parts[0] === "710" && parts[1] === "56789")
       parts = parts.slice(2);
