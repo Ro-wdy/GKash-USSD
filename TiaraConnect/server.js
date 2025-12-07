@@ -19,10 +19,10 @@ app.use(express.urlencoded({ extended: false }));
 app.use(express.json());
 
 // In-memory stores (replace with DB in production)
-const users = new Map(); // phone -> { name, idNumber, pin, defaultAccountId, accounts: { accountId: { fund } } }
+const users = new Map(); // phone -> { name, email, pin, defaultAccountId, accounts: { accountId: { fund } } }
 const accounts = new Map(); // accountId -> { id, phone, fund, name, balance, createdAt }
 const transactions = new Map(); // accountId -> [{ type, amount, createdAt }]
-const pendingOTPs = new Map(); // phone -> { otp, expiresAt, data: { fund, name, idNumber, pin } }
+const pendingOTPs = new Map(); // phone -> { otp, expiresAt, data: { fund, name, email, pin, userPhone } }
 
 const FUNDS = {
   1: "Money Market Fund",
@@ -148,85 +148,163 @@ async function handleCreateAccount(parts, phone) {
     return "END Invalid request.";
   }
 
-  // new user flow WITH OTP validation
+  // new user flow: name -> email -> pin -> confirm pin -> phone -> OTP
   try {
     if (parts.length === 1) return fundMenu("");
+
+    // Step 1: Select fund
     if (parts.length === 2) {
       const fund = parts[1];
       if (!FUNDS[fund]) return fundMenu("Invalid choice. Try again.");
       return "CON Enter your full name";
     }
+
+    // Step 2: Enter name
     if (parts.length === 3) {
       const fund = parts[1];
       const name = parts[2];
       if (!FUNDS[fund]) return "END Session error. Please start over.";
       if (!name || name.trim().length < 2)
         return "CON Name too short. Enter full name:";
-      return "CON Enter your ID number (digits only)";
+      return "CON Enter your email address";
     }
+
+    // Step 3: Enter email
     if (parts.length === 4) {
       const fund = parts[1];
       const name = parts[2];
-      const idNumber = parts[3];
+      const email = parts[3];
       if (!FUNDS[fund]) return "END Session error. Please start over.";
-      if (!/^\d{6,}$/.test(idNumber))
-        return "CON Invalid ID. Enter at least 6 digits:";
+      // Basic email validation
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))
+        return "CON Invalid email. Enter valid email:";
       return "CON Create a 4-digit PIN";
     }
+
+    // Step 4: Enter PIN
     if (parts.length === 5) {
       const fund = parts[1];
       const name = parts[2];
-      const idNumber = parts[3];
+      const email = parts[3];
       const pin = parts[4];
       if (!FUNDS[fund]) return "END Session error. Please start over.";
       if (!/^\d{4}$/.test(pin)) return "CON Invalid PIN. Enter 4 digits:";
+      return "CON Confirm your 4-digit PIN";
+    }
 
-      // Generate and send OTP using tiaraService
+    // Step 5: Confirm PIN
+    if (parts.length === 6) {
+      const fund = parts[1];
+      const name = parts[2];
+      const email = parts[3];
+      const pin = parts[4];
+      const confirmPin = parts[5];
+      if (!FUNDS[fund]) return "END Session error. Please start over.";
+      if (pin !== confirmPin) return "CON PINs don't match. Re-enter PIN:";
+      return "CON Enter your phone number (e.g. 0743177132)";
+    }
+
+    // Step 6: Enter phone number and send OTP
+    if (parts.length === 7) {
+      const fund = parts[1];
+      const name = parts[2];
+      const email = parts[3];
+      const pin = parts[4];
+      const confirmPin = parts[5];
+      const userPhone = parts[6];
+
+      if (!FUNDS[fund]) return "END Session error. Please start over.";
+      if (pin !== confirmPin) return "END PIN mismatch. Please start over.";
+
+      // Validate phone number format
+      const phoneRegex = /^(0|254|\+254)?[17]\d{8}$/;
+      if (!phoneRegex.test(userPhone.replace(/\s+/g, "")))
+        return "CON Invalid phone number. Enter valid number:";
+
+      // Normalize phone number
+      let normalizedUserPhone = userPhone.replace(/\s+/g, "");
+      if (normalizedUserPhone.startsWith("0")) {
+        normalizedUserPhone = "254" + normalizedUserPhone.slice(1);
+      } else if (normalizedUserPhone.startsWith("+254")) {
+        normalizedUserPhone = normalizedUserPhone.slice(1);
+      } else if (!normalizedUserPhone.startsWith("254")) {
+        normalizedUserPhone = "254" + normalizedUserPhone;
+      }
+
+      // Generate and send OTP to user's phone
       try {
-        const otpResult = await sendOTP(phone, name, 6);
+        const otpResult = await sendOTP(normalizedUserPhone, name, 6);
         if (!otpResult.success) {
           console.error("sendOTP failed:", otpResult.error);
           return "END Error sending OTP. Please try again.";
         }
         const expiresAt = Date.now() + 60000; // 1 minute
-        pendingOTPs.set(phone, {
+        pendingOTPs.set(normalizedUserPhone, {
           otp: otpResult.otp,
           expiresAt,
-          data: { fund, name: name.trim(), idNumber, pin },
+          data: {
+            fund,
+            name: name.trim(),
+            email,
+            pin,
+            userPhone: normalizedUserPhone,
+          },
         });
       } catch (e) {
         console.error("OTP sending error:", e);
         return "END Error sending OTP. Please try again.";
       }
-      return "CON Enter OTP sent to your phone";
+      return "CON Enter OTP sent to " + userPhone;
     }
-    if (parts.length === 6) {
-      const otpInput = parts[5];
-      const pendingOTP = pendingOTPs.get(phone);
+
+    // Step 7: Verify OTP and create account
+    if (parts.length === 8) {
+      const fund = parts[1];
+      const name = parts[2];
+      const email = parts[3];
+      const pin = parts[4];
+      const confirmPin = parts[5];
+      const userPhone = parts[6];
+      const otpInput = parts[7];
+
+      // Normalize phone to check pendingOTPs
+      let normalizedUserPhone = userPhone.replace(/\s+/g, "");
+      if (normalizedUserPhone.startsWith("0")) {
+        normalizedUserPhone = "254" + normalizedUserPhone.slice(1);
+      } else if (normalizedUserPhone.startsWith("+254")) {
+        normalizedUserPhone = normalizedUserPhone.slice(1);
+      } else if (!normalizedUserPhone.startsWith("254")) {
+        normalizedUserPhone = "254" + normalizedUserPhone;
+      }
+
+      const pendingOTP = pendingOTPs.get(normalizedUserPhone);
 
       if (!pendingOTP) return "END OTP session expired. Please start over.";
       if (Date.now() > pendingOTP.expiresAt) {
-        pendingOTPs.delete(phone);
+        pendingOTPs.delete(normalizedUserPhone);
         return "END OTP expired. Please start over.";
       }
       if (otpInput !== pendingOTP.otp) return "CON Invalid OTP. Try again:";
 
-      // OTP verified! Create account
-      const { fund, name, idNumber, pin } = pendingOTP.data;
-      const acc = createAccount(phone, fund, `${name}'s ${FUNDS[fund]}`);
-      users.set(phone, {
-        name,
-        idNumber,
+      // OTP verified! Create account with user's phone number
+      const acc = createAccount(
+        normalizedUserPhone,
+        fund,
+        `${name}'s ${FUNDS[fund]}`
+      );
+      users.set(normalizedUserPhone, {
+        name: name.trim(),
+        email,
         pin,
         defaultAccountId: acc.id,
         accounts: { [acc.id]: { fund } },
       });
       addTxForAccount(acc.id, { type: "ACCOUNT_CREATED", amount: 0 });
-      pendingOTPs.delete(phone);
+      pendingOTPs.delete(normalizedUserPhone);
 
       try {
         await sendSMS(
-          phone,
+          normalizedUserPhone,
           `Welcome to Gkash ${name}! Your ${FUNDS[fund]} account is ready. Account No: ${acc.id}`
         );
       } catch (e) {
