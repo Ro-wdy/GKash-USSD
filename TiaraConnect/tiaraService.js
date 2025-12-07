@@ -27,10 +27,14 @@ function generateOTP(length = 6) {
 function formatPhoneNumber(phone) {
   const cleaned = (phone || "").replace(/\D/g, "");
   if (!cleaned) throw new Error("Invalid phone number");
-  if (cleaned.startsWith("254") && cleaned.length >= 12) return cleaned;
+  // Already in 254 format with 12 digits
+  if (cleaned.startsWith("254") && cleaned.length === 12) return cleaned;
+  // 0-format with 10 digits: 0743177132 -> 254743177132
   if (cleaned.startsWith("0") && cleaned.length === 10)
     return "254" + cleaned.slice(1);
+  // 9 digits: 743177132 -> 254743177132
   if (cleaned.length === 9) return "254" + cleaned;
+  // Otherwise return as-is (might already be valid)
   return cleaned;
 }
 
@@ -40,6 +44,7 @@ async function sendSMS(to, message) {
   }
 
   const msisdn = formatPhoneNumber(to);
+  console.log(`[SMS] Sending SMS to ${to} (formatted: ${msisdn})`);
 
   const payload = {
     to: msisdn,
@@ -48,6 +53,7 @@ async function sendSMS(to, message) {
   };
 
   try {
+    console.log(`[SMS] Payload:`, JSON.stringify(payload));
     const resp = await axios.post(TIARA_URL, payload, {
       headers: {
         "Content-Type": "application/json",
@@ -55,9 +61,10 @@ async function sendSMS(to, message) {
       },
       timeout: TIMEOUT,
     });
+    console.log(`[SMS] Success! Response:`, resp.data);
     return { success: true, data: resp.data };
   } catch (err) {
-    console.error("=== Tiara Connect Error ===");
+    console.error("=== Tiara Connect SMS Error ===");
     if (err.response) {
       console.error("Status:", err.response.status);
       console.error("Data:", JSON.stringify(err.response.data));
@@ -74,8 +81,11 @@ async function sendSMS(to, message) {
 
 async function sendOTP(phone, name = "Customer", length = 6) {
   const otp = generateOTP(length);
-  const message = `Hello ${name}, your verification code is ${otp}. It expires in 5 minutes. Do not share it.`;
+  const message = `Hello ${name}, your verification code is ${otp}. It expires in 1 minute. Do not share it.`;
+  console.log(`[OTP] Generating OTP for ${phone}: ${otp}`);
+  console.log(`[OTP] Attempting to send: "${message}"`);
   const result = await sendSMS(phone, message);
+  console.log(`[OTP] SMS Result:`, result);
   return { ...result, otp };
 }
 

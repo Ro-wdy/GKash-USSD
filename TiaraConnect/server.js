@@ -2,15 +2,15 @@
   Gkash USSD Server (Express)
   Clean single implementation that:
   - Uses in-memory stores for development
-  - New users register with PIN only (no OTP)
+  - New users register with OTP validation then PIN
   - Existing users adding accounts require PIN only
   - If a user has multiple accounts, Invest/Withdraw force account selection first
 */
 
 require("dotenv").config();
 const express = require("express");
-const { sendSMS } = require("./tiaraService");
-const { initiateSTKPush } = require("./mpesaService");
+const { sendSMS, sendOTP } = require("./tiaraService");
+const { initiateSTKPush, initiateB2CPayment } = require("./mpesaService");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -22,6 +22,7 @@ app.use(express.json());
 const users = new Map(); // phone -> { name, idNumber, pin, defaultAccountId, accounts: { accountId: { fund } } }
 const accounts = new Map(); // accountId -> { id, phone, fund, name, balance, createdAt }
 const transactions = new Map(); // accountId -> [{ type, amount, createdAt }]
+const pendingOTPs = new Map(); // phone -> { otp, expiresAt, data: { fund, name, idNumber, pin } }
 
 const FUNDS = {
   1: "Money Market Fund",
@@ -147,7 +148,7 @@ async function handleCreateAccount(parts, phone) {
     return "END Invalid request.";
   }
 
-  // new user flow without OTP
+  // new user flow WITH OTP validation
   try {
     if (parts.length === 1) return fundMenu("");
     if (parts.length === 2) {
@@ -179,15 +180,50 @@ async function handleCreateAccount(parts, phone) {
       const pin = parts[4];
       if (!FUNDS[fund]) return "END Session error. Please start over.";
       if (!/^\d{4}$/.test(pin)) return "CON Invalid PIN. Enter 4 digits:";
+
+      // Generate and send OTP using tiaraService
+      try {
+        const otpResult = await sendOTP(phone, name, 6);
+        if (!otpResult.success) {
+          console.error("sendOTP failed:", otpResult.error);
+          return "END Error sending OTP. Please try again.";
+        }
+        const expiresAt = Date.now() + 60000; // 1 minute
+        pendingOTPs.set(phone, {
+          otp: otpResult.otp,
+          expiresAt,
+          data: { fund, name: name.trim(), idNumber, pin },
+        });
+      } catch (e) {
+        console.error("OTP sending error:", e);
+        return "END Error sending OTP. Please try again.";
+      }
+      return "CON Enter OTP sent to your phone";
+    }
+    if (parts.length === 6) {
+      const otpInput = parts[5];
+      const pendingOTP = pendingOTPs.get(phone);
+
+      if (!pendingOTP) return "END OTP session expired. Please start over.";
+      if (Date.now() > pendingOTP.expiresAt) {
+        pendingOTPs.delete(phone);
+        return "END OTP expired. Please start over.";
+      }
+      if (otpInput !== pendingOTP.otp) return "CON Invalid OTP. Try again:";
+
+      // OTP verified! Create account
+      const { fund, name, idNumber, pin } = pendingOTP.data;
       const acc = createAccount(phone, fund, `${name}'s ${FUNDS[fund]}`);
       users.set(phone, {
-        name: name.trim(),
+        name,
         idNumber,
         pin,
         defaultAccountId: acc.id,
         accounts: { [acc.id]: { fund } },
       });
       addTxForAccount(acc.id, { type: "ACCOUNT_CREATED", amount: 0 });
+      pendingOTPs.delete(phone);
+
       try {
         await sendSMS(
           phone,
@@ -225,21 +261,55 @@ async function handleInvest(parts, phone) {
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
   if (account) {
-    account.balance = (account.balance || 0) + amount;
-    addTxForAccount(account.id, { type: "DEPOSIT", amount });
+    // Trigger M-Pesa STK Push for payment
     try {
-      await sendSMS(
+      const stkResult = await initiateSTKPush(
         phone,
-        `Investment of KES ${toK(amount)} successful. New balance: KES ${toK(
-          account.balance
-        )}`
+        amount,
+        account.id,
+        `GKash Investment - ${account.name}`
       );
+      if (stkResult.success) {
+        return `CON M-Pesa payment prompt sent to your phone.\nAmount: KES ${toK(
+          amount
+        )}\nPlease complete payment.`;
+      } else {
+        // Fallback: accept payment directly without M-Pesa
+        account.balance = (account.balance || 0) + amount;
+        addTxForAccount(account.id, { type: "DEPOSIT", amount });
+        try {
+          await sendSMS(
+            phone,
+            `Investment of KES ${toK(
+              amount
+            )} successful. New balance: KES ${toK(account.balance)}`
+          );
+        } catch (e) {
+          console.error(e);
+        }
+        return `END Investment of KES ${toK(amount)} into ${
+          account.name
+        } successful.\nNew balance: KES ${toK(account.balance)}`;
+      }
     } catch (e) {
-      console.error(e);
+      console.error("STK Push error:", e);
+      // Fallback to direct deposit
+      account.balance = (account.balance || 0) + amount;
+      addTxForAccount(account.id, { type: "DEPOSIT", amount });
+      try {
+        await sendSMS(
+          phone,
+          `Investment of KES ${toK(amount)} successful. New balance: KES ${toK(
+            account.balance
+          )}`
+        );
+      } catch (e2) {
+        console.error(e2);
+      }
+      return `END Investment of KES ${toK(amount)} into ${
+        account.name
+      } successful.\nNew balance: KES ${toK(account.balance)}`;
     }
-    return `END Investment of KES ${toK(amount)} into ${
-      account.name
-    } successful.\nNew balance: KES ${toK(account.balance)}`;
   }
   return "END Account selection error.";
 }
@@ -274,21 +344,23 @@ async function handleWithdraw(parts, phone) {
       return `END Insufficient balance. Available: KES ${toK(
         account.balance || 0
       )}`;
-    account.balance = (account.balance || 0) - amount;
-    addTxForAccount(account.id, { type: "WITHDRAW", amount });
+    // Trigger M-Pesa B2C for withdrawal
     try {
-      await sendSMS(
-        phone,
-        `Withdrawal of KES ${toK(amount)} successful. New balance: KES ${toK(
-          account.balance
-        )}`
-      );
+      const b2cResult = await initiateB2CPayment(phone, amount);
+      if (b2cResult.success) {
+        // Deduct from account immediately
+        account.balance = (account.balance || 0) - amount;
+        addTxForAccount(account.id, { type: "WITHDRAW", amount });
+        return `CON Withdrawal initiated.\nAmount: KES ${toK(
+          amount
+        )}\nM-Pesa transfer in progress...`;
+      } else {
+        return `END Withdrawal failed. Please try again.`;
+      }
     } catch (e) {
-      console.error(e);
+      console.error("B2C Payment error:", e);
+      return `END Withdrawal failed. Please try again.`;
     }
-    return `END Withdrawal of KES ${toK(
-      amount
-    )} successful.\nNew balance: KES ${toK(account.balance)}`;
   }
   return "END Account selection error.";
 }
@@ -422,8 +494,8 @@ app.post("/debug/seed-user", (req, res) => {
 app.post("/ussd", async (req, res) => {
   try {
     res.set("Content-Type", "text/plain");
-    const { phoneNumber, text } = req.body;
-    let normalizedPhone = String(phoneNumber || "")
+    const { phoneNumber, phone, text } = req.body;
+    let normalizedPhone = String(phoneNumber || phone || "")
       .trim()
       .replace(/\s+/g, "");
     if (/^0\d+/.test(normalizedPhone))

@@ -97,6 +97,14 @@ function generatePassword(shortcode, passkey, timestamp) {
 // Initiate STK Push (for deposits)
 async function initiateSTKPush(phone, amount, accountReference, description) {
   try {
+    // Normalize phone number: remove + prefix if present
+    let normalizedPhone = String(phone).replace(/^\+/, "");
+    if (normalizedPhone.startsWith("254")) {
+      // Already in correct format
+    } else if (normalizedPhone.startsWith("0")) {
+      normalizedPhone = "254" + normalizedPhone.slice(1);
+    }
+
     const accessToken = await getAccessToken();
     const timestamp = new Date()
       .toISOString()
@@ -116,9 +124,9 @@ async function initiateSTKPush(phone, amount, accountReference, description) {
         Timestamp: timestamp,
         TransactionType: "CustomerPayBillOnline",
         Amount: amount,
-        PartyA: phone,
+        PartyA: normalizedPhone,
         PartyB: MPESA_BUSINESS_SHORTCODE,
-        PhoneNumber: phone,
+        PhoneNumber: normalizedPhone,
         CallBackURL: MPESA_CALLBACK_URL,
         AccountReference: accountReference,
         TransactionDesc: description || "Deposit to Gkash",
@@ -151,6 +159,14 @@ async function initiateB2CPayment(
   remarks = "Withdrawal from Gkash"
 ) {
   try {
+    // Normalize phone number: remove + prefix if present
+    let normalizedPhone = String(phone).replace(/^\+/, "");
+    if (normalizedPhone.startsWith("254")) {
+      // Already in correct format
+    } else if (normalizedPhone.startsWith("0")) {
+      normalizedPhone = "254" + normalizedPhone.slice(1);
+    }
+
     const accessToken = await getAccessToken();
     const securityCredential = generateSecurityCredential();
 
@@ -162,7 +178,7 @@ async function initiateB2CPayment(
         CommandID: "BusinessPayment",
         Amount: amount,
         PartyA: MPESA_SHORTCODE,
-        PartyB: phone,
+        PartyB: normalizedPhone,
         Remarks: remarks,
         QueueTimeOutURL: `${MPESA_CALLBACK_URL}/b2c/timeout`,
         ResultURL: `${MPESA_CALLBACK_URL}/b2c/result`,
