@@ -290,7 +290,7 @@ async function handleCreateAccount(parts, phone) {
       const confirmPin = parts[5];
       if (!FUNDS[fund]) return "END Session error. Please start over.";
       if (pin !== confirmPin) return "CON PINs don't match. Re-enter PIN:";
-      return "CON Enter your phone number (e.g. 0743177132)";
+      return "CON Enter your phone number (e.g. 07xxxxxxxx) to receive OTP";
     }
 
     // Step 6: Enter phone number and send OTP
