@@ -934,6 +934,15 @@ app.get("/", (_req, res) =>
     .send("Gkash USSD service is running. POST /ussd with USSD payload.")
 );
 
+// Health check endpoint for Render
+app.get("/health", (_req, res) => {
+  res.status(200).json({ 
+    status: "ok", 
+    timestamp: new Date().toISOString(),
+    service: "gkash-ussd"
+  });
+});
+
 // M-Pesa STK Push endpoint - trigger payment prompt on phone
 app.post("/api/mpesa/stkpush", async (req, res) => {
   try {
