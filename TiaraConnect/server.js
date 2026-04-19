@@ -51,16 +51,31 @@ function loadData() {
   try {
     if (fs.existsSync(USERS_FILE)) {
       const usersData = JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
-      Object.entries(usersData).forEach(([key, value]) =>
-        users.set(key, value)
-      );
+      Object.entries(usersData).forEach(([key, value]) => {
+        const normalizedKey = canonicalPhone(key);
+        const existing = users.get(normalizedKey) || {};
+        const merged = {
+          ...existing,
+          ...value,
+          phone: canonicalPhone(value?.phone || normalizedKey),
+          accounts: {
+            ...(existing.accounts || {}),
+            ...(value?.accounts || {}),
+          },
+        };
+        users.set(normalizedKey, merged);
+      });
       console.log(`[Persistence] Loaded ${users.size} users`);
     }
     if (fs.existsSync(ACCOUNTS_FILE)) {
       const accountsData = JSON.parse(fs.readFileSync(ACCOUNTS_FILE, "utf8"));
-      Object.entries(accountsData).forEach(([key, value]) =>
-        accounts.set(key, value)
-      );
+      Object.entries(accountsData).forEach(([key, value]) => {
+        const normalizedAccount = {
+          ...value,
+          phone: canonicalPhone(value?.phone || ""),
+        };
+        accounts.set(key, normalizedAccount);
+      });
       console.log(`[Persistence] Loaded ${accounts.size} accounts`);
     }
     if (fs.existsSync(TRANSACTIONS_FILE)) {
@@ -333,6 +348,7 @@ function createAccount(phone, fundKey, accountName) {
   const acc = {
     id,
     phone: normalizedPhone,
+    fundKey,
     fund: FUNDS[fundKey],
     name:
       accountName ||
@@ -345,6 +361,7 @@ function createAccount(phone, fundKey, accountName) {
     phone: normalizedPhone,
     accounts: {},
   };
+  user.phone = normalizedPhone;
   user.accounts = user.accounts || {};
   user.accounts[id] = { fund: fundKey };
   if (!user.defaultAccountId) user.defaultAccountId = id;
@@ -385,7 +402,10 @@ async function syncAccountsFromPostgres() {
     }
 
     for (const item of dbUsers.users) {
-      setUserByPhone(item.phone, item.data || {});
+      setUserByPhone(item.phone, {
+        phone: canonicalPhone(item.phone),
+        ...(item.data || {}),
+      });
     }
 
     for (const item of dbTransactions.transactions) {
@@ -489,6 +509,7 @@ async function handleCreateAccount(parts, phone) {
           Object.keys(existingUser.accounts || {}).length + 1
         }`
       );
+      existingUser.phone = normalizedPhone;
       addTxForAccount(acc.id, { type: "ACCOUNT_CREATED", amount: 0 });
       try {
         await sendSMS(phone, `New ${FUNDS[fund]} account created: ${acc.id}`);
@@ -645,6 +666,7 @@ async function handleCreateAccount(parts, phone) {
         `${name}'s ${FUNDS[fund]}`
       );
       setUserByPhone(normalizedUserPhone, {
+        phone: normalizedUserPhone,
         name: name.trim(),
         email,
         pin,
@@ -948,14 +970,13 @@ app.post("/debug/seed-user", (req, res) => {
       return res
         .status(400)
         .json({ success: false, message: "phone required" });
-    let p = String(phone).trim();
-    if (/^0\d+/.test(p)) p = "+254" + p.slice(1);
-    if (!p.startsWith("+")) p = p;
+    let p = canonicalPhone(phone);
     if (getUserByPhone(p))
       return res.json({ success: false, message: "user exists", phone: p });
     const fk = fundKey || "1";
     const acc = createAccount(p, fk, `${name || "Test"}'s ${FUNDS[fk]}`);
     setUserByPhone(p, {
+      phone: p,
       name: name || "Test",
       idNumber: "00000000",
       pin: pin || "1234",

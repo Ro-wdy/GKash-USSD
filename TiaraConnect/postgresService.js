@@ -54,12 +54,17 @@ async function initPostgres() {
     CREATE TABLE IF NOT EXISTS accounts (
       id TEXT PRIMARY KEY,
       phone TEXT NOT NULL,
+      fund_key TEXT,
       fund TEXT NOT NULL,
       name TEXT NOT NULL,
       balance NUMERIC NOT NULL DEFAULT 0,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
+  `);
+
+  await pgPool.query(`
+    ALTER TABLE accounts ADD COLUMN IF NOT EXISTS fund_key TEXT;
   `);
 
   await pgPool.query(`
@@ -97,10 +102,11 @@ async function upsertAccount(account) {
 
   await pgPool.query(
     `
-      INSERT INTO accounts (id, phone, fund, name, balance, created_at, updated_at)
-      VALUES ($1, $2, $3, $4, $5, $6, NOW())
+      INSERT INTO accounts (id, phone, fund_key, fund, name, balance, created_at, updated_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
       ON CONFLICT (id) DO UPDATE SET
         phone = EXCLUDED.phone,
+        fund_key = EXCLUDED.fund_key,
         fund = EXCLUDED.fund,
         name = EXCLUDED.name,
         balance = EXCLUDED.balance,
@@ -109,6 +115,7 @@ async function upsertAccount(account) {
     [
       account.id,
       account.phone,
+      account.fundKey || account.fund_key || null,
       account.fund,
       account.name,
       Number(account.balance || 0),
@@ -127,7 +134,7 @@ async function loadAccounts() {
 
   const result = await pgPool.query(
     `
-      SELECT id, phone, fund, name, balance, created_at
+      SELECT id, phone, fund_key, fund, name, balance, created_at
       FROM accounts
       ORDER BY created_at ASC;
     `
@@ -136,6 +143,7 @@ async function loadAccounts() {
   const accounts = result.rows.map((row) => ({
     id: row.id,
     phone: row.phone,
+    fundKey: row.fund_key,
     fund: row.fund,
     name: row.name,
     balance: Number(row.balance || 0),
