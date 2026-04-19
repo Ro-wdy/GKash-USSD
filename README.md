@@ -12,8 +12,8 @@ A comprehensive USSD service for managing investment accounts, built with Expres
 
 💰 **Investment Operations**
 
-- Invest in multiple fund types
-- Withdraw from accounts
+- Invest in multiple fund types via PayHero M-Pesa checkout
+- Withdraw from accounts via PayHero mobile money payout
 - Check real-time balance
 - Track transaction history
 
@@ -37,7 +37,7 @@ A comprehensive USSD service for managing investment accounts, built with Expres
 - **Runtime**: Node.js v14+
 - **Framework**: Express.js
 - **SMS/USSD Provider**: Tiara Connect
-- **Payment Integration**: Africa's Talking (SMS notifications)
+- **Payment Integration**: PayHero (M-Pesa checkout and withdrawals)
 - **Authentication**: OTP + PIN
 
 ---

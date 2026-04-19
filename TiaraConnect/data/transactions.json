@@ -1,1 +1,63 @@
-{}
+{
+  "GK71142711": [
+    {
+      "type": "PAYHERO_DEPOSIT",
+      "amount": 1000,
+      "reference": "INV-MO687UD5-09302E71",
+      "providerReference": "MPESA-INV-MO687UD5-09302E71",
+      "createdAt": "2026-04-19T20:36:27.557Z"
+    },
+    {
+      "type": "PAYHERO_DEPOSIT_PENDING",
+      "amount": 1000,
+      "reference": "INV-MO687UD5-09302E71",
+      "createdAt": "2026-04-19T20:36:27.511Z"
+    },
+    {
+      "type": "PAYHERO_DEPOSIT",
+      "amount": 1000,
+      "reference": "INV-MO6862UC-F4E8DAF2",
+      "providerReference": "MPESA-INV-MO6862UC-F4E8DAF2",
+      "createdAt": "2026-04-19T20:35:04.667Z"
+    },
+    {
+      "type": "PAYHERO_DEPOSIT_PENDING",
+      "amount": 1000,
+      "reference": "INV-MO6862UC-F4E8DAF2",
+      "createdAt": "2026-04-19T20:35:04.627Z"
+    },
+    {
+      "type": "SEED",
+      "amount": 0,
+      "createdAt": "2026-04-19T20:30:42.061Z"
+    }
+  ],
+  "GK91556761": [
+    {
+      "type": "ACCOUNT_CREATED",
+      "amount": 0,
+      "createdAt": "2026-04-19T20:30:43.359Z"
+    }
+  ],
+  "GK46519706": [
+    {
+      "type": "ACCOUNT_CREATED",
+      "amount": 0,
+      "createdAt": "2026-04-19T20:35:01.158Z"
+    }
+  ],
+  "GK55877665": [
+    {
+      "type": "ACCOUNT_CREATED",
+      "amount": 0,
+      "createdAt": "2026-04-19T20:36:23.717Z"
+    }
+  ],
+  "GK48592093": [
+    {
+      "type": "ACCOUNT_CREATED",
+      "amount": 0,
+      "createdAt": "2026-04-19T20:36:31.427Z"
+    }
+  ]
+}

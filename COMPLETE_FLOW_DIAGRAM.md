@@ -15,6 +15,7 @@
     │  3. Withdraw             │
     │  4. Check balance        │
     │  5. Track account        │
+    │  6. Manage accounts      │
     └──────────────────────────┘
             │ │ │ │ │
     ┌───────┘ │ │ │ └────────────┬──────────────┬────────────┐
@@ -80,7 +81,7 @@
         │ 3. Withdraw                │
         │ 4. Check balance           │
         │ 5. Track account           │
-        └────────────────────────────┘
+        │  6. Manage accounts         │
                      │
                      └─→ (Return to Menu)
 ```
@@ -129,7 +130,7 @@
             │  │ 3. Withdraw                  │
             │  │ 4. Check balance             │
             │  │ 5. Track account             │
-            │  └──────────────┬───────────────┘
+            │  6. Manage accounts           │
             │                 │
             │                 └─→ (Return to Menu)
             │

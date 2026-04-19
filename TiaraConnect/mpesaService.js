@@ -1,150 +1,137 @@
 const axios = require("axios");
-const crypto = require("crypto");
-require("dotenv").config();
+const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
 
-// M-Pesa API credentials
-const CONSUMER_KEY =
-  process.env.MPESA_CONSUMER_KEY ||
-  "7FmuvDlDqRWd1WigJykD1EWEPf7hj2hjgdmRQEW25qjbE3VP";
-const CONSUMER_SECRET =
-  process.env.MPESA_CONSUMER_SECRET ||
-  "qPUpuMPe8ouiKsDIkp6sTsAHpzDMAWjqfAG4haY8dSgjj0b9mQFGB39iZA7AynyZ";
-const MPESA_ENV = (process.env.MPESA_ENV || "sandbox").toLowerCase(); // 'sandbox' or 'production'
-const MPESA_BUSINESS_SHORTCODE = process.env.MPESA_SHORTCODE || "174379";
-const MPESA_PASSKEY =
-  process.env.MPESA_PASSKEY ||
-  "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919";
-const MPESA_INITIATOR_NAME = process.env.MPESA_INITIATOR_NAME || "testapi";
-const MPESA_INITIATOR_PASSWORD =
-  process.env.MPESA_INITIATOR_PASSWORD || "Safaricom123!!";
-const MPESA_PARTY_A = process.env.MPESA_PARTY_A || "600990";
-const MPESA_PARTY_B = process.env.MPESA_PARTY_B || "600000";
+const PAYHERO_BASE_URL = (
+  process.env.PAYHERO_BASE_URL || "https://backend.payhero.co.ke/api/v2"
+).replace(/\/+$/, "");
+const PAYHERO_USERNAME = process.env.PAYHERO_USERNAME || "";
+const PAYHERO_PASSWORD = process.env.PAYHERO_PASSWORD || "";
+const PAYHERO_AUTH_TOKEN = process.env.PAYHERO_AUTH_TOKEN || "";
+const PAYHERO_CHANNEL_ID = Number(process.env.PAYHERO_CHANNEL_ID || 0);
+const PAYHERO_TILL_NUMBER = process.env.PAYHERO_TILL_NUMBER || "";
+const PAYHERO_CALLBACK_URL =
+  process.env.PAYHERO_CALLBACK_URL ||
+  "https://tiara-connect-otp.onrender.com/payhero/callback";
 
-// M-Pesa API endpoints (switch based on environment)
-const MPESA_AUTH_URL =
-  MPESA_ENV === "production"
-    ? "https://api.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials"
-    : "https://sandbox.safaricom.co.ke/oauth/v1/generate?grant_type=client_credentials";
-const MPESA_STKPUSH_URL =
-  MPESA_ENV === "production"
-    ? "https://api.safaricom.co.ke/mpesa/stkpush/v1/processrequest"
-    : "https://sandbox.safaricom.co.ke/mpesa/stkpush/v1/processrequest";
-const MPESA_B2C_URL =
-  MPESA_ENV === "production"
-    ? "https://api.safaricom.co.ke/mpesa/b2c/v1/paymentrequest"
-    : "https://sandbox.safaricom.co.ke/mpesa/b2c/v1/paymentrequest";
-const MPESA_CALLBACK_URL =
-  process.env.MPESA_CALLBACK_URL ||
-  "https://tiara-connect-otp.onrender.com/mpesa/callback";
+function normalizePhoneNumber(phone) {
+  let normalized = String(phone || "").trim().replace(/\s+/g, "");
+  normalized = normalized.replace(/^\+/, "");
 
-// Generate security credential (for B2C)
-function generateSecurityCredential() {
-  if (!MPESA_INITIATOR_PASSWORD) {
-    throw new Error("MPESA_INITIATOR_PASSWORD is not set in environment");
+  if (normalized.startsWith("0")) {
+    normalized = `254${normalized.slice(1)}`;
+  } else if (!normalized.startsWith("254") && normalized.length > 0) {
+    normalized = `254${normalized}`;
   }
 
-  // Accept public key with escaped newlines or full PEM
-  let publicKey = MPESA_PUBLIC_KEY || "";
-  if (!publicKey) {
-    throw new Error("MPESA_PUBLIC_KEY is not set in environment");
+  return normalized;
+}
+
+function buildAuthToken() {
+  if (PAYHERO_AUTH_TOKEN) {
+    return PAYHERO_AUTH_TOKEN.replace(/^Basic\s+/i, "").trim();
   }
 
-  // If the env contains literal \\n+  // sequences, convert them to real newlines
-  if (publicKey.indexOf("\\n") !== -1) {
-    publicKey = publicKey.replace(/\\n/g, "\n");
+  if (!PAYHERO_USERNAME || !PAYHERO_PASSWORD) {
+    throw new Error("PayHero credentials are not set");
   }
 
-  // Ensure PEM wrapper exists
-  if (!publicKey.includes("BEGIN")) {
-    publicKey = `-----BEGIN PUBLIC KEY-----\n${publicKey}\n-----END PUBLIC KEY-----`;
-  }
-
-  const buffer = Buffer.from(MPESA_INITIATOR_PASSWORD);
-  const encrypted = crypto.publicEncrypt(
-    {
-      key: publicKey,
-      padding: crypto.constants.RSA_PKCS1_PADDING,
-    },
-    buffer
+  return Buffer.from(`${PAYHERO_USERNAME}:${PAYHERO_PASSWORD}`).toString(
+    "base64"
   );
-  return encrypted.toString("base64");
 }
 
-// Get M-Pesa access token
+function buildHeaders() {
+  return {
+    Authorization: `Basic ${buildAuthToken()}`,
+    "Content-Type": "application/json",
+  };
+}
+
+function buildUrl(path) {
+  return `${PAYHERO_BASE_URL}${path}`;
+}
+
+function generateReference(prefix = "PH") {
+  const suffix = Math.random().toString(36).slice(2, 10).toUpperCase();
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${suffix}`;
+}
+
+async function requestPayHero(path, method, data, params) {
+  const response = await axios({
+    method,
+    url: buildUrl(path),
+    headers: buildHeaders(),
+    data,
+    params,
+    timeout: 30000,
+  });
+  return response.data;
+}
+
+// Keep legacy name for compatibility with the rest of the app.
 async function getAccessToken() {
-  try {
-    const auth = Buffer.from(`${CONSUMER_KEY}:${CONSUMER_SECRET}`).toString(
-      "base64"
-    );
-    const response = await axios.get(MPESA_AUTH_URL, {
-      headers: {
-        Authorization: `Basic ${auth}`,
-      },
-    });
-    return response.data.access_token;
-  } catch (error) {
-    console.error("M-Pesa Auth Error:", error.response?.data || error.message);
-    throw new Error("Failed to get M-Pesa access token");
+  return buildAuthToken();
+}
+
+async function getPaymentChannels(isActive = true) {
+  return requestPayHero(
+    "/payment_channels",
+    "get",
+    undefined,
+    typeof isActive === "boolean" ? { is_active: isActive } : undefined
+  );
+}
+
+async function getTransactionStatus(reference) {
+  if (!reference) {
+    throw new Error("reference is required");
   }
+  return requestPayHero("/transaction-status", "get", undefined, {
+    reference,
+  });
 }
 
-// Generate password for STK Push
-function generatePassword(shortcode, passkey, timestamp) {
-  const str = shortcode + passkey + timestamp;
-  return Buffer.from(str).toString("base64");
-}
-
-// Initiate STK Push (for deposits)
-async function initiateSTKPush(phone, amount, accountReference, description) {
+async function initiateSTKPush(
+  phone,
+  amount,
+  accountReference,
+  description,
+  options = {}
+) {
   try {
-    // Normalize phone number: remove + prefix if present
-    let normalizedPhone = String(phone).replace(/^\+/, "");
-    if (normalizedPhone.startsWith("254")) {
-      // Already in correct format
-    } else if (normalizedPhone.startsWith("0")) {
-      normalizedPhone = "254" + normalizedPhone.slice(1);
+    const normalizedPhone = normalizePhoneNumber(phone);
+    const externalReference =
+      options.externalReference || accountReference || generateReference("INV");
+
+    const payload = {
+      amount: Number(amount),
+      phone_number: normalizedPhone,
+      channel_id: Number(options.channelId || PAYHERO_CHANNEL_ID),
+      provider: "m-pesa",
+      external_reference: externalReference,
+      customer_name: options.customerName || options.customer_name,
+      callback_url: options.callbackUrl || PAYHERO_CALLBACK_URL,
+    };
+
+    if (!payload.channel_id || !Number.isFinite(payload.amount)) {
+      throw new Error("PayHero STK push requires a valid channel ID and amount");
     }
 
-    const accessToken = await getAccessToken();
-    const timestamp = new Date()
-      .toISOString()
-      .replace(/[^0-9]/g, "")
-      .slice(0, -3);
-    const password = generatePassword(
-      MPESA_BUSINESS_SHORTCODE,
-      MPESA_PASSKEY,
-      timestamp
-    );
+    if (!payload.customer_name) {
+      payload.customer_name = description || `Gkash customer (${PAYHERO_TILL_NUMBER || "PayHero"})`;
+    }
 
-    const response = await axios.post(
-      MPESA_STKPUSH_URL,
-      {
-        BusinessShortCode: MPESA_BUSINESS_SHORTCODE,
-        Password: password,
-        Timestamp: timestamp,
-        TransactionType: "CustomerPayBillOnline",
-        Amount: amount,
-        PartyA: normalizedPhone,
-        PartyB: MPESA_BUSINESS_SHORTCODE,
-        PhoneNumber: normalizedPhone,
-        CallBackURL: MPESA_CALLBACK_URL,
-        AccountReference: accountReference,
-        TransactionDesc: description || "Deposit to Gkash",
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const data = await requestPayHero("/payments", "post", payload);
 
     return {
       success: true,
-      data: response.data,
+      data,
+      reference: data.reference || data.CheckoutRequestID || externalReference,
+      externalReference,
     };
   } catch (error) {
-    console.error("STK Push Error:", error.response?.data || error.message);
+    console.error("PayHero STK Push Error:", error.response?.data || error.message);
     return {
       success: false,
       error: error.response?.data || error.message,
@@ -152,52 +139,43 @@ async function initiateSTKPush(phone, amount, accountReference, description) {
   }
 }
 
-// Initiate B2C payment (for withdrawals)
 async function initiateB2CPayment(
   phone,
   amount,
-  remarks = "Withdrawal from Gkash"
+  remarks = "Withdrawal from Gkash",
+  options = {}
 ) {
   try {
-    // Normalize phone number: remove + prefix if present
-    let normalizedPhone = String(phone).replace(/^\+/, "");
-    if (normalizedPhone.startsWith("254")) {
-      // Already in correct format
-    } else if (normalizedPhone.startsWith("0")) {
-      normalizedPhone = "254" + normalizedPhone.slice(1);
+    const normalizedPhone = normalizePhoneNumber(phone);
+    const externalReference =
+      options.externalReference || generateReference("WDR");
+
+    const payload = {
+      external_reference: externalReference,
+      amount: Number(amount),
+      phone_number: normalizedPhone,
+      network_code: options.networkCode || "63902",
+      callback_url: options.callbackUrl || PAYHERO_CALLBACK_URL,
+      channel: "mobile",
+      channel_id: Number(options.channelId || PAYHERO_CHANNEL_ID),
+      payment_service: "b2c",
+    };
+
+    if (!payload.channel_id || !Number.isFinite(payload.amount)) {
+      throw new Error("PayHero withdrawal requires a valid channel ID and amount");
     }
 
-    const accessToken = await getAccessToken();
-    const securityCredential = generateSecurityCredential();
-
-    const response = await axios.post(
-      MPESA_B2C_URL,
-      {
-        InitiatorName: MPESA_INITIATOR_NAME,
-        SecurityCredential: securityCredential,
-        CommandID: "BusinessPayment",
-        Amount: amount,
-        PartyA: MPESA_SHORTCODE,
-        PartyB: normalizedPhone,
-        Remarks: remarks,
-        QueueTimeOutURL: `${MPESA_CALLBACK_URL}/b2c/timeout`,
-        ResultURL: `${MPESA_CALLBACK_URL}/b2c/result`,
-        Occasion: "Withdrawal",
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
+    const data = await requestPayHero("/withdraw", "post", payload);
 
     return {
       success: true,
-      data: response.data,
+      data,
+      reference: data.merchant_reference || data.reference || externalReference,
+      externalReference,
+      message: remarks,
     };
   } catch (error) {
-    console.error("B2C Payment Error:", error.response?.data || error.message);
+    console.error("PayHero withdrawal error:", error.response?.data || error.message);
     return {
       success: false,
       error: error.response?.data || error.message,
@@ -205,12 +183,35 @@ async function initiateB2CPayment(
   }
 }
 
-// Handle M-Pesa callback
 function handleMpesaCallback(callbackData) {
-  // Process the callback data from M-Pesa
-  // This should be implemented based on your business logic
-  console.log("M-Pesa Callback:", callbackData);
-  return { success: true, data: callbackData };
+  const response = callbackData?.response || callbackData?.Body?.stkCallback || callbackData;
+  const status = String(response?.Status || response?.status || "").toLowerCase();
+  const resultCode = response?.ResultCode;
+  const success =
+    callbackData?.status === true ||
+    status === "success" ||
+    resultCode === 0 ||
+    response?.success === true;
+
+  return {
+    success,
+    provider: response?.provider || "m-pesa",
+    amount: response?.Amount,
+    phone: response?.Phone || response?.phone_number,
+    reference:
+      response?.ExternalReference ||
+      response?.external_reference ||
+      response?.CheckoutRequestID ||
+      response?.checkout_request_id ||
+      response?.MerchantRequestID ||
+      response?.merchant_reference,
+    providerReference:
+      response?.MpesaReceiptNumber ||
+      response?.provider_reference ||
+      response?.CheckoutRequestID ||
+      response?.checkout_request_id,
+    raw: callbackData,
+  };
 }
 
 module.exports = {
@@ -218,4 +219,7 @@ module.exports = {
   initiateB2CPayment,
   handleMpesaCallback,
   getAccessToken,
+  getPaymentChannels,
+  getTransactionStatus,
+  normalizePhoneNumber,
 };

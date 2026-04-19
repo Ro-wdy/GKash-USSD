@@ -7,12 +7,17 @@
   - If a user has multiple accounts, Invest/Withdraw force account selection first
 */
 
-require("dotenv").config();
-const express = require("express");
-const fs = require("fs");
 const path = require("path");
+require("dotenv").config({ path: path.join(__dirname, ".env") });
+const express = require("express");
+const crypto = require("crypto");
+const fs = require("fs");
 const { sendSMS, sendOTP, generateOTP } = require("./tiaraService");
-const { initiateSTKPush, initiateB2CPayment } = require("./mpesaService");
+const {
+  initiateSTKPush,
+  initiateB2CPayment,
+  normalizePhoneNumber,
+} = require("./mpesaService");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -107,6 +112,7 @@ const users = new Map(); // phone -> { name, email, pin, defaultAccountId, accou
 const accounts = new Map(); // accountId -> { id, phone, fund, name, balance, createdAt }
 const transactions = new Map(); // accountId -> [{ type, amount, createdAt }]
 const pendingOTPs = new Map(); // phone -> { otp, expiresAt, data: { fund, name, email, pin, userPhone } }
+const pendingPayments = new Map(); // reference -> { type, phone, accountId, amount, status, createdAt, payload }
 
 // Load persisted data on startup
 loadData();
@@ -126,6 +132,143 @@ function getUserAccounts(phone) {
 }
 function toK(n) {
   return new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(n);
+}
+
+function createPaymentReference(prefix) {
+  return `${prefix}-${Date.now().toString(36).toUpperCase()}-${crypto
+    .randomBytes(4)
+    .toString("hex")
+    .toUpperCase()}`;
+}
+
+function registerPendingPayment(payload) {
+  if (!payload || !payload.reference) return;
+  pendingPayments.set(payload.reference, {
+    ...payload,
+    status: "PENDING",
+    createdAt: new Date(),
+  });
+}
+
+function updatePendingPayment(reference, updates) {
+  if (!reference || !pendingPayments.has(reference)) return null;
+  const current = pendingPayments.get(reference);
+  const next = { ...current, ...updates };
+  pendingPayments.set(reference, next);
+  return next;
+}
+
+function normalizeIncomingPhone(phone) {
+  return normalizePhoneNumber(phone || "");
+}
+
+function formatPayHeroError(error) {
+  if (!error) return "Unknown PayHero error.";
+  if (typeof error === "string") return error;
+  if (error.error_message) return error.error_message;
+  if (error.message) return error.message;
+  return JSON.stringify(error);
+}
+
+function applyPayHeroCallback(callbackPayload) {
+  const parsed =
+    callbackPayload?.response || callbackPayload?.Body?.stkCallback || callbackPayload;
+  const reference =
+    parsed?.ExternalReference ||
+    parsed?.external_reference ||
+    parsed?.CheckoutRequestID ||
+    parsed?.checkout_request_id ||
+    parsed?.MerchantRequestID ||
+    parsed?.merchant_reference;
+  const status = String(parsed?.Status || parsed?.status || "").toLowerCase();
+  const success =
+    callbackPayload?.status === true ||
+    status === "success" ||
+    parsed?.ResultCode === 0 ||
+    parsed?.success === true;
+
+  const pending = reference ? pendingPayments.get(reference) : null;
+
+  if (!pending) {
+    console.log("[PayHero] Callback received without a matching pending payment", {
+      reference,
+      callbackPayload,
+    });
+    return { success, matched: false, reference, parsed };
+  }
+
+  const account = accounts.get(pending.accountId);
+  if (!account) {
+    console.log("[PayHero] Pending payment matched but account is missing", {
+      reference,
+      pending,
+    });
+    updatePendingPayment(reference, {
+      status: success ? "SUCCESS" : "FAILED",
+      callback: callbackPayload,
+    });
+    return { success, matched: true, reference, pending, parsed };
+  }
+
+  if (success) {
+    if (pending.type === "invest") {
+      account.balance = (account.balance || 0) + Number(pending.amount || 0);
+      addTxForAccount(account.id, {
+        type: "PAYHERO_DEPOSIT",
+        amount: Number(pending.amount || 0),
+        reference,
+        providerReference:
+          parsed?.MpesaReceiptNumber || parsed?.provider_reference || reference,
+      });
+      updatePendingPayment(reference, {
+        status: "SUCCESS",
+        callback: callbackPayload,
+        providerReference:
+          parsed?.MpesaReceiptNumber || parsed?.provider_reference || reference,
+      });
+      pendingPayments.delete(reference);
+      return { success: true, matched: true, reference, pending, account };
+    }
+
+    if (pending.type === "withdraw") {
+      const amount = Number(pending.amount || 0);
+      const currentBalance = Number(account.balance || 0);
+      account.balance = Math.max(0, currentBalance - amount);
+      addTxForAccount(account.id, {
+        type: "PAYHERO_WITHDRAWAL",
+        amount,
+        reference,
+        providerReference:
+          parsed?.MpesaReceiptNumber || parsed?.provider_reference || reference,
+      });
+      updatePendingPayment(reference, {
+        status: "SUCCESS",
+        callback: callbackPayload,
+        providerReference:
+          parsed?.MpesaReceiptNumber || parsed?.provider_reference || reference,
+      });
+      pendingPayments.delete(reference);
+      return { success: true, matched: true, reference, pending, account };
+    }
+  } else {
+    addTxForAccount(account.id, {
+      type:
+        pending.type === "invest"
+          ? "PAYHERO_DEPOSIT_FAILED"
+          : "PAYHERO_WITHDRAWAL_FAILED",
+      amount: Number(pending.amount || 0),
+      reference,
+      providerReference:
+        parsed?.MpesaReceiptNumber || parsed?.provider_reference || reference,
+    });
+    updatePendingPayment(reference, {
+      status: "FAILED",
+      callback: callbackPayload,
+    });
+    pendingPayments.delete(reference);
+  }
+
+  return { success, matched: true, reference, pending, account, parsed };
 }
 
 function createAccount(phone, fundKey, accountName) {
@@ -428,54 +571,47 @@ async function handleInvest(parts, phone) {
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
   if (account) {
-    // Trigger M-Pesa STK Push for payment
+    const externalReference = createPaymentReference("INV");
     try {
       const stkResult = await initiateSTKPush(
         phone,
         amount,
         account.id,
-        `GKash Investment - ${account.name}`
+        `GKash Investment - ${account.name}`,
+        {
+          externalReference,
+          customerName: user.name || account.name,
+          callbackUrl:
+            process.env.PAYHERO_CALLBACK_URL ||
+            "https://tiara-connect-otp.onrender.com/payhero/callback",
+          channelId: Number(process.env.PAYHERO_CHANNEL_ID || 0),
+        }
       );
       if (stkResult.success) {
-        return `CON M-Pesa payment prompt sent to your phone.\nAmount: KES ${toK(
-          amount
-        )}\nPlease complete payment.`;
-      } else {
-        // Fallback: accept payment directly without M-Pesa
-        account.balance = (account.balance || 0) + amount;
-        addTxForAccount(account.id, { type: "DEPOSIT", amount });
-        try {
-          await sendSMS(
-            phone,
-            `Investment of KES ${toK(
-              amount
-            )} successful. New balance: KES ${toK(account.balance)}`
-          );
-        } catch (e) {
-          console.error(e);
-        }
-        return `END Investment of KES ${toK(amount)} into ${
-          account.name
-        } successful.\nNew balance: KES ${toK(account.balance)}`;
-      }
-    } catch (e) {
-      console.error("STK Push error:", e);
-      // Fallback to direct deposit
-      account.balance = (account.balance || 0) + amount;
-      addTxForAccount(account.id, { type: "DEPOSIT", amount });
-      try {
-        await sendSMS(
+        registerPendingPayment({
+          reference: externalReference,
+          type: "invest",
           phone,
-          `Investment of KES ${toK(amount)} successful. New balance: KES ${toK(
-            account.balance
-          )}`
-        );
-      } catch (e2) {
-        console.error(e2);
+          accountId: account.id,
+          amount,
+          checkoutRequestId: stkResult.data?.CheckoutRequestID,
+          payload: stkResult.data,
+        });
+        addTxForAccount(account.id, {
+          type: "PAYHERO_DEPOSIT_PENDING",
+          amount,
+          reference: externalReference,
+        });
+        return `CON PayHero payment prompt sent to your phone.\nTill: ${
+          process.env.PAYHERO_TILL_NUMBER || "PayHero"
+        }\nAmount: KES ${toK(amount)}\nReference: ${externalReference}\nPlease complete payment.`;
       }
-      return `END Investment of KES ${toK(amount)} into ${
-        account.name
-      } successful.\nNew balance: KES ${toK(account.balance)}`;
+      return `END Failed to start PayHero payment. ${formatPayHeroError(
+        stkResult.error
+      )}`;
+    } catch (e) {
+      console.error("PayHero STK Push error:", e);
+      return "END Failed to start PayHero payment. Please try again.";
     }
   }
   return "END Account selection error.";
@@ -511,21 +647,45 @@ async function handleWithdraw(parts, phone) {
       return `END Insufficient balance. Available: KES ${toK(
         account.balance || 0
       )}`;
-    // Trigger M-Pesa B2C for withdrawal
+    const externalReference = createPaymentReference("WDR");
     try {
-      const b2cResult = await initiateB2CPayment(phone, amount);
+      const b2cResult = await initiateB2CPayment(
+        phone,
+        amount,
+        `Withdrawal from ${account.name}`,
+        {
+          externalReference,
+          callbackUrl:
+            process.env.PAYHERO_CALLBACK_URL ||
+            "https://tiara-connect-otp.onrender.com/payhero/callback",
+          channelId: Number(process.env.PAYHERO_CHANNEL_ID || 0),
+          networkCode: "63902",
+        }
+      );
       if (b2cResult.success) {
-        // Deduct from account immediately
-        account.balance = (account.balance || 0) - amount;
-        addTxForAccount(account.id, { type: "WITHDRAW", amount });
-        return `CON Withdrawal initiated.\nAmount: KES ${toK(
-          amount
-        )}\nM-Pesa transfer in progress...`;
-      } else {
-        return `END Withdrawal failed. Please try again.`;
+        registerPendingPayment({
+          reference: externalReference,
+          type: "withdraw",
+          phone,
+          accountId: account.id,
+          amount,
+          checkoutRequestId: b2cResult.data?.checkout_request_id,
+          payload: b2cResult.data,
+        });
+        addTxForAccount(account.id, {
+          type: "PAYHERO_WITHDRAWAL_PENDING",
+          amount,
+          reference: externalReference,
+        });
+        return `CON PayHero withdrawal request queued.\nTo mobile: ${normalizeIncomingPhone(
+          phone
+        )}\nAmount: KES ${toK(amount)}\nReference: ${externalReference}\nTransfer in progress...`;
       }
+      return `END Failed to start PayHero withdrawal. ${formatPayHeroError(
+        b2cResult.error
+      )}`;
     } catch (e) {
-      console.error("B2C Payment error:", e);
+      console.error("PayHero withdrawal error:", e);
       return `END Withdrawal failed. Please try again.`;
     }
   }
@@ -540,14 +700,14 @@ function handleCheckBalance(parts, phone) {
       phone,
       "Select account to view balance"
     );
-  const { account } = resolveSelectedAccount(phone, parts);
+  const { account, offset } = resolveSelectedAccount(phone, parts);
   if (userAccounts.length > 1 && !account)
     return showUserAccountsForOperation(
       phone,
       "Select account to view balance"
     );
-  if (parts.length === 1) return "CON Enter your PIN";
-  const pin = parts[1];
+  if (parts.length === offset) return "CON Enter your PIN";
+  const pin = parts[offset];
   const user = users.get(phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
@@ -563,11 +723,11 @@ function handleTrackAccount(parts, phone) {
   const userAccounts = getUserAccounts(phone);
   if (userAccounts.length > 1 && parts.length === 1)
     return showUserAccountsForOperation(phone, "Select account to track");
-  const { account } = resolveSelectedAccount(phone, parts);
+  const { account, offset } = resolveSelectedAccount(phone, parts);
   if (userAccounts.length > 1 && !account)
     return showUserAccountsForOperation(phone, "Select account to track");
-  if (parts.length === 1) return "CON Enter your PIN";
-  const pin = parts[1];
+  if (parts.length === offset) return "CON Enter your PIN";
+  const pin = parts[offset];
   const user = users.get(phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
@@ -612,9 +772,16 @@ async function handleAccountManagement(parts, phone) {
   if (parts.length === 1) return showManageAccountsMenu(phone);
   const sel = parseInt(parts[1], 10);
   if (isNaN(sel) || sel < 1) return "CON Invalid choice. Try again.";
+  const createNewIdx = (userAccounts?.length || 0) + 1;
+
+  // Continue nested create-account flow from Manage Accounts path:
+  // 6*<createNewIdx>*<fund>*<pin>
+  if (sel === createNewIdx) {
+    const createParts = ["1", ...parts.slice(2)];
+    return await handleCreateAccount(createParts, phone);
+  }
+
   if ((!userAccounts || userAccounts.length === 0) && sel === 1)
-    return await handleCreateAccount(["1"], phone);
-  if (sel === userAccounts.length + 1)
     return await handleCreateAccount(["1"], phone);
   const idx = sel - 1;
   if (idx >= 0 && idx < userAccounts.length) {
@@ -943,8 +1110,8 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// M-Pesa STK Push endpoint - trigger payment prompt on phone
-app.post("/api/mpesa/stkpush", async (req, res) => {
+// PayHero STK Push endpoint - trigger payment prompt on phone
+app.post(["/api/payhero/stkpush", "/api/mpesa/stkpush"], async (req, res) => {
   try {
     const { phone, amount, accountId, accountReference } = req.body;
 
@@ -959,24 +1126,34 @@ app.post("/api/mpesa/stkpush", async (req, res) => {
       phone,
       amount,
       accountReference || accountId,
-      `Deposit to ${accountId}`
+      `Deposit to ${accountId}`,
+      {
+        externalReference:
+          accountReference || createPaymentReference("INV-API"),
+        customerName: req.body.customerName || req.body.customer_name,
+        callbackUrl:
+          process.env.PAYHERO_CALLBACK_URL ||
+          "https://tiara-connect-otp.onrender.com/payhero/callback",
+        channelId: Number(process.env.PAYHERO_CHANNEL_ID || 0),
+      }
     );
 
     if (result.success) {
       return res.json({
         success: true,
-        message: "STK Push initiated. Check your phone for payment prompt.",
+        message:
+          "PayHero STK Push initiated. Check your phone for payment prompt.",
         data: result.data,
       });
     } else {
       return res.status(400).json({
         success: false,
-        message: "Failed to initiate STK Push",
+        message: "Failed to initiate PayHero STK Push",
         error: result.error,
       });
     }
   } catch (err) {
-    console.error("STK Push API error", err);
+    console.error("PayHero STK Push API error", err);
     return res.status(500).json({
       success: false,
       message: "Internal server error",
@@ -984,49 +1161,116 @@ app.post("/api/mpesa/stkpush", async (req, res) => {
   }
 });
 
-// M-Pesa Callback endpoint - receive payment confirmation
-app.post("/mpesa/callback", (req, res) => {
+app.post("/api/payhero/withdraw", async (req, res) => {
+  try {
+    const { phone, amount } = req.body;
+
+    if (!phone || !amount) {
+      return res.status(400).json({
+        success: false,
+        message: "phone and amount are required",
+      });
+    }
+
+    const externalReference = createPaymentReference("WDR-API");
+    const result = await initiateB2CPayment(
+      phone,
+      amount,
+      "PayHero withdrawal",
+      {
+        externalReference,
+        callbackUrl:
+          process.env.PAYHERO_CALLBACK_URL ||
+          "https://tiara-connect-otp.onrender.com/payhero/callback",
+        channelId: Number(process.env.PAYHERO_CHANNEL_ID || 0),
+        networkCode: "63902",
+      }
+    );
+
+    if (result.success) {
+      return res.json({
+        success: true,
+        message: "PayHero withdrawal queued successfully.",
+        data: result.data,
+      });
+    }
+
+    return res.status(400).json({
+      success: false,
+      message: "Failed to initiate PayHero withdrawal",
+      error: result.error,
+    });
+  } catch (err) {
+    console.error("PayHero withdrawal API error", err);
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+});
+
+// PayHero callback endpoint - receive payment confirmation
+app.post(["/payhero/callback", "/mpesa/callback"], async (req, res) => {
   try {
     const body = req.body;
-    console.log("M-Pesa Callback received:", body);
+    console.log("PayHero Callback received:", body);
 
-    // Log callback for debugging
-    if (body.Body && body.Body.stkCallback) {
-      const callbackData = body.Body.stkCallback;
-      const resultCode = callbackData.ResultCode;
-      const resultDesc = callbackData.ResultDesc;
-      const amount = callbackData.CallbackMetadata?.Item?.find(
-        (i) => i.Name === "Amount"
-      )?.Value;
-      const mpesaRef = callbackData.CallbackMetadata?.Item?.find(
-        (i) => i.Name === "MpesaReceiptNumber"
-      )?.Value;
-      const phone = callbackData.CallbackMetadata?.Item?.find(
-        (i) => i.Name === "PhoneNumber"
-      )?.Value;
+    const result = applyPayHeroCallback(body);
 
-      console.log(`Payment ${resultCode === 0 ? "SUCCESS" : "FAILED"}:`);
-      console.log(`  Phone: ${phone}`);
-      console.log(`  Amount: ${amount}`);
-      console.log(`  M-Pesa Ref: ${mpesaRef}`);
-      console.log(`  Description: ${resultDesc}`);
+    if (result.matched && result.account && result.pending) {
+      const amount = Number(result.pending.amount || 0);
+      const phone = result.pending.phone;
+      const account = result.account;
 
-      // TODO: Update user balance in database if resultCode === 0
-      if (resultCode === 0) {
-        console.log("Payment confirmed - update account balance here");
+      if (result.pending.type === "invest" && result.success) {
+        try {
+          await sendSMS(
+            phone,
+            `Investment of KES ${toK(amount)} successful. New balance: KES ${toK(
+              account.balance || 0
+            )}`
+          );
+        } catch (e) {
+          console.error("PayHero callback SMS error:", e);
+        }
+      }
+
+      if (result.pending.type === "withdraw" && result.success) {
+        try {
+          await sendSMS(
+            phone,
+            `Withdrawal of KES ${toK(amount)} successful. New balance: KES ${toK(
+              account.balance || 0
+            )}`
+          );
+        } catch (e) {
+          console.error("PayHero callback SMS error:", e);
+        }
+      }
+
+      if (!result.success) {
+        try {
+          await sendSMS(
+            phone,
+            `PayHero transaction for KES ${toK(amount)} failed. Reference: ${
+              result.pending.reference || result.reference
+            }`
+          );
+        } catch (e) {
+          console.error("PayHero callback failure SMS error:", e);
+        }
       }
     }
 
-    // Return success to M-Pesa (required)
     return res.json({
-      ResultCode: 0,
-      ResultDesc: "Accepted",
+      success: true,
+      status: "accepted",
     });
   } catch (err) {
-    console.error("M-Pesa callback error", err);
+    console.error("PayHero callback error", err);
     return res.status(500).json({
-      ResultCode: 1,
-      ResultDesc: "Error processing callback",
+      success: false,
+      message: "Error processing callback",
     });
   }
 });

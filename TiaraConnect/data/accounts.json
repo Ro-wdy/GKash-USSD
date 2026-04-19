@@ -1,1 +1,42 @@
-{}
+{
+  "GK71142711": {
+    "id": "GK71142711",
+    "phone": "+254712999999",
+    "fund": "Money Market Fund",
+    "name": "Test User's Money Market Fund",
+    "balance": 2000,
+    "createdAt": "2026-04-19T20:30:42.060Z"
+  },
+  "GK91556761": {
+    "id": "GK91556761",
+    "phone": "+254712999999",
+    "fund": "Fixed Income Fund",
+    "name": "Test User's Fixed Income Fund 2",
+    "balance": 0,
+    "createdAt": "2026-04-19T20:30:43.358Z"
+  },
+  "GK46519706": {
+    "id": "GK46519706",
+    "phone": "+254712999999",
+    "fund": "Fixed Income Fund",
+    "name": "Test User's Fixed Income Fund 3",
+    "balance": 0,
+    "createdAt": "2026-04-19T20:35:01.157Z"
+  },
+  "GK55877665": {
+    "id": "GK55877665",
+    "phone": "+254712999999",
+    "fund": "Fixed Income Fund",
+    "name": "Test User's Fixed Income Fund 4",
+    "balance": 0,
+    "createdAt": "2026-04-19T20:36:23.715Z"
+  },
+  "GK48592093": {
+    "id": "GK48592093",
+    "phone": "+254712999999",
+    "fund": "Balanced Fund",
+    "name": "Test User's Balanced Fund 5",
+    "balance": 0,
+    "createdAt": "2026-04-19T20:36:31.426Z"
+  }
+}
