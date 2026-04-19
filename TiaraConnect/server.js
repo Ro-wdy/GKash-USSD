@@ -758,7 +758,7 @@ async function handleInvest(parts, phone) {
           amount,
           reference: externalReference,
         });
-        return `CON PayHero payment prompt sent to your phone.\nTill: ${
+        return `END Thank you for investing with Gkash.\nPayHero payment prompt sent to your phone.\nTill: ${
           process.env.PAYHERO_TILL_NUMBER || "PayHero"
         }\nAmount: KES ${toK(amount)}\nReference: ${externalReference}\nPlease complete payment.`;
       }
@@ -1390,9 +1390,11 @@ app.post(["/payhero/callback", "/mpesa/callback"], async (req, res) => {
         try {
           await sendSMS(
             phone,
-            `Investment of KES ${toK(amount)} into ${
-              account.name
-            } successful. New balance: KES ${toK(account.balance || 0)}`
+            `Thank you for investing with Gkash. Investment of KES ${toK(
+              amount
+            )} into ${account.name} was successful. New balance: KES ${toK(
+              account.balance || 0
+            )}`
           );
         } catch (e) {
           console.error("PayHero callback SMS error:", e);
@@ -1403,9 +1405,11 @@ app.post(["/payhero/callback", "/mpesa/callback"], async (req, res) => {
         try {
           await sendSMS(
             phone,
-            `Withdrawal of KES ${toK(amount)} from ${
-              account.name
-            } successful. New balance: KES ${toK(account.balance || 0)}`
+            `Thank you for using Gkash. Withdrawal of KES ${toK(
+              amount
+            )} from ${account.name} was successful. New balance: KES ${toK(
+              account.balance || 0
+            )}`
           );
         } catch (e) {
           console.error("PayHero callback SMS error:", e);
@@ -1416,7 +1420,9 @@ app.post(["/payhero/callback", "/mpesa/callback"], async (req, res) => {
         try {
           await sendSMS(
             phone,
-            `PayHero transaction for KES ${toK(amount)} failed. Reference: ${
+            `Thank you for using Gkash. Your transaction of KES ${toK(
+              amount
+            )} was not successful. Please try again. Reference: ${
               result.pending.reference || result.reference
             }`
           );

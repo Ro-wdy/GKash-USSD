@@ -1,31 +1,6 @@
 {
-  "+254712999999": {
-    "pin": "4321",
-    "name": "Test User",
-    "accounts": {
-      "GK46519706": {
-        "fund": "2"
-      },
-      "GK48592093": {
-        "fund": "3"
-      },
-      "GK55877665": {
-        "fund": "2"
-      },
-      "GK71142711": {
-        "fund": "1"
-      },
-      "GK91556761": {
-        "fund": "2"
-      },
-      "GK16059340": {
-        "fund": "4"
-      }
-    },
-    "idNumber": "00000000",
-    "defaultAccountId": "GK71142711"
-  },
   "254712999999": {
+    "phone": "254712999999",
     "pin": "4321",
     "name": "Test User",
     "accounts": {
@@ -46,12 +21,19 @@
       },
       "GK91556761": {
         "fund": "2"
+      },
+      "GK62183719": {
+        "fund": "2"
+      },
+      "GK36604503": {
+        "fund": "3"
       }
     },
     "idNumber": "00000000",
     "defaultAccountId": "GK71142711"
   },
   "254701111111": {
+    "phone": "254701111111",
     "pin": "1111",
     "name": "Single Account User",
     "accounts": {

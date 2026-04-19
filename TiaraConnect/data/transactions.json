@@ -3,6 +3,19 @@
     {
       "type": "PAYHERO_DEPOSIT",
       "amount": 1000,
+      "reference": "INV-MO6B1TCH-F3A08FF1",
+      "providerReference": "MPESA-INV-MO6B1TCH-F3A08FF1",
+      "createdAt": "2026-04-19T21:55:45.185Z"
+    },
+    {
+      "type": "PAYHERO_DEPOSIT_PENDING",
+      "amount": 1000,
+      "reference": "INV-MO6B1TCH-F3A08FF1",
+      "createdAt": "2026-04-19T21:55:45.136Z"
+    },
+    {
+      "type": "PAYHERO_DEPOSIT",
+      "amount": 1000,
       "createdAt": "2026-04-19T20:36:27.557Z",
       "reference": "INV-MO687UD5-09302E71",
       "providerReference": "MPESA-INV-MO687UD5-09302E71"
@@ -72,6 +85,20 @@
       "type": "SEED",
       "amount": 0,
       "createdAt": "2026-04-19T21:14:22.196Z"
+    }
+  ],
+  "GK62183719": [
+    {
+      "type": "ACCOUNT_CREATED",
+      "amount": 0,
+      "createdAt": "2026-04-19T21:55:41.308Z"
+    }
+  ],
+  "GK36604503": [
+    {
+      "type": "ACCOUNT_CREATED",
+      "amount": 0,
+      "createdAt": "2026-04-19T21:55:49.071Z"
     }
   ]
 }
