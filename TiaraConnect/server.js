@@ -166,8 +166,25 @@ const FUNDS = {
 function generateAccountId() {
   return "GK" + Math.floor(10000000 + Math.random() * 90000000);
 }
+
+function canonicalPhone(phone) {
+  return normalizePhoneNumber(phone || "");
+}
+
+function getUserByPhone(phone) {
+  const normalized = canonicalPhone(phone);
+  return users.get(normalized) || users.get(phone) || null;
+}
+
+function setUserByPhone(phone, userData) {
+  users.set(canonicalPhone(phone), userData);
+}
+
 function getUserAccounts(phone) {
-  return Array.from(accounts.values()).filter((a) => a.phone === phone);
+  const normalized = canonicalPhone(phone);
+  return Array.from(accounts.values()).filter(
+    (a) => canonicalPhone(a.phone) === normalized
+  );
 }
 function toK(n) {
   return new Intl.NumberFormat("en-KE", { maximumFractionDigits: 0 }).format(n);
@@ -311,10 +328,11 @@ function applyPayHeroCallback(callbackPayload) {
 }
 
 function createAccount(phone, fundKey, accountName) {
+  const normalizedPhone = canonicalPhone(phone);
   const id = generateAccountId();
   const acc = {
     id,
-    phone,
+    phone: normalizedPhone,
     fund: FUNDS[fundKey],
     name:
       accountName ||
@@ -323,16 +341,19 @@ function createAccount(phone, fundKey, accountName) {
     createdAt: new Date(),
   };
   accounts.set(id, acc);
-  const user = users.get(phone) || { phone, accounts: {} };
+  const user = getUserByPhone(normalizedPhone) || {
+    phone: normalizedPhone,
+    accounts: {},
+  };
   user.accounts = user.accounts || {};
   user.accounts[id] = { fund: fundKey };
   if (!user.defaultAccountId) user.defaultAccountId = id;
-  users.set(phone, user);
+  setUserByPhone(normalizedPhone, user);
   transactions.set(id, []);
   upsertAccount(acc).catch((error) => {
     console.error("[Postgres] Failed to save account:", error.message);
   });
-  upsertUser(phone, user).catch((error) => {
+  upsertUser(normalizedPhone, user).catch((error) => {
     console.error("[Postgres] Failed to save user:", error.message);
   });
   upsertTransactions(id, []).catch((error) => {
@@ -364,7 +385,7 @@ async function syncAccountsFromPostgres() {
     }
 
     for (const item of dbUsers.users) {
-      users.set(item.phone, item.data || {});
+      setUserByPhone(item.phone, item.data || {});
     }
 
     for (const item of dbTransactions.transactions) {
@@ -433,7 +454,8 @@ function resolveSelectedAccount(phone, parts) {
 // New user: fund -> name -> id -> pin -> create (PIN-only)
 // Existing user: fund -> PIN -> create
 async function handleCreateAccount(parts, phone) {
-  const existingUser = users.get(phone);
+  const normalizedPhone = canonicalPhone(phone);
+  const existingUser = getUserByPhone(normalizedPhone);
   if (existingUser) {
     if (parts.length === 1) return fundMenu("");
     if (parts.length === 2) {
@@ -448,7 +470,7 @@ async function handleCreateAccount(parts, phone) {
       if (!/^\d{4}$/.test(pin)) return "CON Invalid PIN. Enter 4 digits:";
       if (existingUser.pin !== pin) return "END Invalid PIN";
       const acc = createAccount(
-        phone,
+        normalizedPhone,
         fund,
         `${existingUser.name}'s ${FUNDS[fund]} ${
           Object.keys(existingUser.accounts || {}).length + 1
@@ -609,14 +631,14 @@ async function handleCreateAccount(parts, phone) {
         fund,
         `${name}'s ${FUNDS[fund]}`
       );
-      users.set(normalizedUserPhone, {
+      setUserByPhone(normalizedUserPhone, {
         name: name.trim(),
         email,
         pin,
         defaultAccountId: acc.id,
         accounts: { [acc.id]: { fund } },
       });
-      upsertUser(normalizedUserPhone, users.get(normalizedUserPhone)).catch(
+      upsertUser(normalizedUserPhone, getUserByPhone(normalizedUserPhone)).catch(
         (error) => {
           console.error("[Postgres] Failed to save user:", error.message);
         }
@@ -644,6 +666,8 @@ async function handleCreateAccount(parts, phone) {
 // Invest
 async function handleInvest(parts, phone) {
   const userAccounts = getUserAccounts(phone);
+  if (!userAccounts || userAccounts.length === 0)
+    return "END No accounts found. Please create an account first.";
   if (userAccounts.length > 1 && parts.length === 1)
     return showUserAccountsForOperation(phone, "Select account to invest into");
   const { account, offset } = resolveSelectedAccount(phone, parts);
@@ -656,7 +680,9 @@ async function handleInvest(parts, phone) {
     return "CON Invalid amount. Enter a positive number (KES)";
   if (parts.length === idx + 1) return "CON Enter your PIN";
   const pin = parts[idx + 1];
-  const user = users.get(phone);
+  if (!/^\d{4}$/.test(pin)) return "CON Invalid PIN. Enter 4 digits:";
+
+  const user = getUserByPhone(phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
@@ -710,6 +736,8 @@ async function handleInvest(parts, phone) {
 // Withdraw
 async function handleWithdraw(parts, phone) {
   const userAccounts = getUserAccounts(phone);
+  if (!userAccounts || userAccounts.length === 0)
+    return "END No accounts found. Please create an account first.";
   if (userAccounts.length > 1 && parts.length === 1)
     return showUserAccountsForOperation(
       phone,
@@ -728,7 +756,9 @@ async function handleWithdraw(parts, phone) {
     return "CON Invalid amount. Enter a positive number (KES)";
   if (parts.length === idx + 1) return "CON Enter your PIN";
   const pin = parts[idx + 1];
-  const user = users.get(phone);
+  if (!/^\d{4}$/.test(pin)) return "CON Invalid PIN. Enter 4 digits:";
+
+  const user = getUserByPhone(phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
@@ -798,7 +828,7 @@ function handleCheckBalance(parts, phone) {
     );
   if (parts.length === offset) return "CON Enter your PIN";
   const pin = parts[offset];
-  const user = users.get(phone);
+  const user = getUserByPhone(phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
@@ -818,7 +848,7 @@ function handleTrackAccount(parts, phone) {
     return showUserAccountsForOperation(phone, "Select account to track");
   if (parts.length === offset) return "CON Enter your PIN";
   const pin = parts[offset];
-  const user = users.get(phone);
+  const user = getUserByPhone(phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
@@ -876,10 +906,10 @@ async function handleAccountManagement(parts, phone) {
   const idx = sel - 1;
   if (idx >= 0 && idx < userAccounts.length) {
     const acc = userAccounts[idx];
-    const user = users.get(phone) || {};
+    const user = getUserByPhone(phone) || {};
     user.defaultAccountId = acc.id;
-    users.set(phone, user);
-    upsertUser(phone, user).catch((error) => {
+    setUserByPhone(phone, user);
+    upsertUser(canonicalPhone(phone), user).catch((error) => {
       console.error("[Postgres] Failed to save user:", error.message);
     });
     return `END Switched default account to ${acc.name} (${acc.id})`;
@@ -898,18 +928,18 @@ app.post("/debug/seed-user", (req, res) => {
     let p = String(phone).trim();
     if (/^0\d+/.test(p)) p = "+254" + p.slice(1);
     if (!p.startsWith("+")) p = p;
-    if (users.has(p))
+    if (getUserByPhone(p))
       return res.json({ success: false, message: "user exists", phone: p });
     const fk = fundKey || "1";
     const acc = createAccount(p, fk, `${name || "Test"}'s ${FUNDS[fk]}`);
-    users.set(p, {
+    setUserByPhone(p, {
       name: name || "Test",
       idNumber: "00000000",
       pin: pin || "1234",
       defaultAccountId: acc.id,
       accounts: { [acc.id]: { fund: fk } },
     });
-    upsertUser(p, users.get(p)).catch((error) => {
+    upsertUser(canonicalPhone(p), getUserByPhone(p)).catch((error) => {
       console.error("[Postgres] Failed to save user:", error.message);
     });
     addTxForAccount(acc.id, { type: "SEED", amount: 0 });
@@ -1322,9 +1352,9 @@ app.post(["/payhero/callback", "/mpesa/callback"], async (req, res) => {
         try {
           await sendSMS(
             phone,
-            `Investment of KES ${toK(amount)} successful. New balance: KES ${toK(
-              account.balance || 0
-            )}`
+            `Investment of KES ${toK(amount)} into ${
+              account.name
+            } successful. New balance: KES ${toK(account.balance || 0)}`
           );
         } catch (e) {
           console.error("PayHero callback SMS error:", e);
@@ -1335,9 +1365,9 @@ app.post(["/payhero/callback", "/mpesa/callback"], async (req, res) => {
         try {
           await sendSMS(
             phone,
-            `Withdrawal of KES ${toK(amount)} successful. New balance: KES ${toK(
-              account.balance || 0
-            )}`
+            `Withdrawal of KES ${toK(amount)} from ${
+              account.name
+            } successful. New balance: KES ${toK(account.balance || 0)}`
           );
         } catch (e) {
           console.error("PayHero callback SMS error:", e);

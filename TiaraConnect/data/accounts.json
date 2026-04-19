@@ -38,5 +38,21 @@
     "name": "Test User's Balanced Fund 5",
     "balance": 0,
     "createdAt": "2026-04-19T20:36:31.426Z"
+  },
+  "GK16059340": {
+    "id": "GK16059340",
+    "phone": "+254712999999",
+    "fund": "Stock Market",
+    "name": "Test User's Stock Market 6",
+    "balance": 0,
+    "createdAt": "2026-04-19T20:57:46.668Z"
+  },
+  "GK20481141": {
+    "id": "GK20481141",
+    "phone": "254701111111",
+    "fund": "Money Market Fund",
+    "name": "Single Account User's Money Market Fund",
+    "balance": 0,
+    "createdAt": "2026-04-19T21:14:22.195Z"
   }
 }

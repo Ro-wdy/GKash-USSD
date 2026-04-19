@@ -1,24 +1,64 @@
 {
   "+254712999999": {
-    "name": "Test User",
-    "idNumber": "00000000",
     "pin": "4321",
-    "defaultAccountId": "GK71142711",
+    "name": "Test User",
     "accounts": {
+      "GK46519706": {
+        "fund": "2"
+      },
+      "GK48592093": {
+        "fund": "3"
+      },
+      "GK55877665": {
+        "fund": "2"
+      },
       "GK71142711": {
         "fund": "1"
       },
       "GK91556761": {
         "fund": "2"
       },
-      "GK46519706": {
-        "fund": "2"
+      "GK16059340": {
+        "fund": "4"
+      }
+    },
+    "idNumber": "00000000",
+    "defaultAccountId": "GK71142711"
+  },
+  "254712999999": {
+    "pin": "4321",
+    "name": "Test User",
+    "accounts": {
+      "GK16059340": {
+        "fund": "4"
       },
-      "GK55877665": {
+      "GK46519706": {
         "fund": "2"
       },
       "GK48592093": {
         "fund": "3"
+      },
+      "GK55877665": {
+        "fund": "2"
+      },
+      "GK71142711": {
+        "fund": "1"
+      },
+      "GK91556761": {
+        "fund": "2"
+      }
+    },
+    "idNumber": "00000000",
+    "defaultAccountId": "GK71142711"
+  },
+  "254701111111": {
+    "name": "Single Account User",
+    "idNumber": "00000000",
+    "pin": "1111",
+    "defaultAccountId": "GK20481141",
+    "accounts": {
+      "GK20481141": {
+        "fund": "1"
       }
     }
   }
