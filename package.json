@@ -4,13 +4,17 @@
   "description": "GKash USSD and OTP Services",
   "scripts": {
     "start": "node TiaraConnect/server.js",
-    "test": "node TiaraConnect/test-tiara.js"
+    "test": "node TiaraConnect/test-tiara.js",
+    "test:payhero": "node test-payhero-diagnostics.js",
+    "test:accounts-db": "node test-postgres-accounts.js",
+    "import:accounts-db": "node scripts/import-json-accounts-to-postgres.js"
   },
   "dependencies": {
     "africastalking": "^0.7.7",
     "axios": "^1.6.0",
     "dotenv": "^16.3.1",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "pg": "^8.13.1"
   },
   "engines": {
     "node": ">=14.0.0"

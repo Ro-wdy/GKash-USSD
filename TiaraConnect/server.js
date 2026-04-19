@@ -18,6 +18,16 @@ const {
   initiateB2CPayment,
   normalizePhoneNumber,
 } = require("./mpesaService");
+const {
+  isPostgresEnabled,
+  initPostgres,
+  upsertAccount,
+  loadAccounts,
+  upsertUser,
+  loadUsers,
+  upsertTransactions,
+  loadTransactions,
+} = require("./postgresService");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -86,9 +96,38 @@ function saveData() {
       TRANSACTIONS_FILE,
       JSON.stringify(Object.fromEntries(transactions), null, 2)
     );
+    persistAllToPostgres();
   } catch (error) {
     console.error("[Persistence] Error saving data:", error);
   }
+}
+
+let pgPersistInFlight = false;
+function persistAllToPostgres() {
+  if (!isPostgresEnabled() || pgPersistInFlight) return;
+
+  pgPersistInFlight = true;
+  (async () => {
+    try {
+      await initPostgres();
+
+      for (const account of accounts.values()) {
+        await upsertAccount(account);
+      }
+
+      for (const [phone, user] of users.entries()) {
+        await upsertUser(phone, user);
+      }
+
+      for (const [accountId, txList] of transactions.entries()) {
+        await upsertTransactions(accountId, txList || []);
+      }
+    } catch (error) {
+      console.error("[Postgres] Persist snapshot failed:", error.message);
+    } finally {
+      pgPersistInFlight = false;
+    }
+  })();
 }
 
 // Auto-save every 30 seconds
@@ -290,8 +329,54 @@ function createAccount(phone, fundKey, accountName) {
   if (!user.defaultAccountId) user.defaultAccountId = id;
   users.set(phone, user);
   transactions.set(id, []);
+  upsertAccount(acc).catch((error) => {
+    console.error("[Postgres] Failed to save account:", error.message);
+  });
+  upsertUser(phone, user).catch((error) => {
+    console.error("[Postgres] Failed to save user:", error.message);
+  });
+  upsertTransactions(id, []).catch((error) => {
+    console.error("[Postgres] Failed to initialize account transactions:", error.message);
+  });
   saveData(); // Persist data
   return acc;
+}
+
+async function syncAccountsFromPostgres() {
+  try {
+    if (!isPostgresEnabled()) {
+      console.log("[Postgres] Not configured. Using local JSON persistence only.");
+      return;
+    }
+
+    await initPostgres();
+    const dbAccounts = await loadAccounts();
+    const dbUsers = await loadUsers();
+    const dbTransactions = await loadTransactions();
+
+    for (const account of dbAccounts.accounts) {
+      if (!accounts.has(account.id)) {
+        accounts.set(account.id, account);
+      }
+      if (!transactions.has(account.id)) {
+        transactions.set(account.id, []);
+      }
+    }
+
+    for (const item of dbUsers.users) {
+      users.set(item.phone, item.data || {});
+    }
+
+    for (const item of dbTransactions.transactions) {
+      transactions.set(item.accountId, item.txList || []);
+    }
+
+    console.log(
+      `[Postgres] Loaded ${dbAccounts.accounts.length} accounts, ${dbUsers.users.length} users, ${dbTransactions.transactions.length} transaction sets`
+    );
+  } catch (error) {
+    console.error("[Postgres] Startup sync failed:", error.message);
+  }
 }
 
 function addTxForAccount(accountId, tx) {
@@ -531,6 +616,11 @@ async function handleCreateAccount(parts, phone) {
         defaultAccountId: acc.id,
         accounts: { [acc.id]: { fund } },
       });
+      upsertUser(normalizedUserPhone, users.get(normalizedUserPhone)).catch(
+        (error) => {
+          console.error("[Postgres] Failed to save user:", error.message);
+        }
+      );
       addTxForAccount(acc.id, { type: "ACCOUNT_CREATED", amount: 0 });
       pendingOTPs.delete(normalizedUserPhone);
 
@@ -789,6 +879,9 @@ async function handleAccountManagement(parts, phone) {
     const user = users.get(phone) || {};
     user.defaultAccountId = acc.id;
     users.set(phone, user);
+    upsertUser(phone, user).catch((error) => {
+      console.error("[Postgres] Failed to save user:", error.message);
+    });
     return `END Switched default account to ${acc.name} (${acc.id})`;
   }
   return "END Invalid selection.";
@@ -815,6 +908,9 @@ app.post("/debug/seed-user", (req, res) => {
       pin: pin || "1234",
       defaultAccountId: acc.id,
       accounts: { [acc.id]: { fund: fk } },
+    });
+    upsertUser(p, users.get(p)).catch((error) => {
+      console.error("[Postgres] Failed to save user:", error.message);
     });
     addTxForAccount(acc.id, { type: "SEED", amount: 0 });
     return res.json({ success: true, phone: p, account: acc });
@@ -1275,4 +1371,6 @@ app.post(["/payhero/callback", "/mpesa/callback"], async (req, res) => {
   }
 });
 
-app.listen(PORT, () => console.log(`USSD server listening on port ${PORT}`));
+syncAccountsFromPostgres().finally(() => {
+  app.listen(PORT, () => console.log(`USSD server listening on port ${PORT}`));
+});
