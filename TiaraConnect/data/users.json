@@ -52,14 +52,14 @@
     "defaultAccountId": "GK71142711"
   },
   "254701111111": {
-    "name": "Single Account User",
-    "idNumber": "00000000",
     "pin": "1111",
-    "defaultAccountId": "GK20481141",
+    "name": "Single Account User",
     "accounts": {
       "GK20481141": {
         "fund": "1"
       }
-    }
+    },
+    "idNumber": "00000000",
+    "defaultAccountId": "GK20481141"
   }
 }

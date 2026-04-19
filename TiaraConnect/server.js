@@ -450,6 +450,19 @@ function resolveSelectedAccount(phone, parts) {
   return { account: userAccounts[idx], offset: 2 };
 }
 
+function resolveSelectedAccountForInvestWithdraw(phone, parts) {
+  const userAccounts = getUserAccounts(phone);
+  if (!userAccounts || userAccounts.length === 0)
+    return { account: null, offset: 2 };
+
+  const sel = parts[1];
+  const idx = parseInt(sel, 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= userAccounts.length)
+    return { account: null, offset: 2 };
+
+  return { account: userAccounts[idx], offset: 2 };
+}
+
 // Create account handler
 // New user: fund -> name -> id -> pin -> create (PIN-only)
 // Existing user: fund -> PIN -> create
@@ -668,21 +681,26 @@ async function handleInvest(parts, phone) {
   const userAccounts = getUserAccounts(phone);
   if (!userAccounts || userAccounts.length === 0)
     return "END No accounts found. Please create an account first.";
-  if (userAccounts.length > 1 && parts.length === 1)
+  if (parts.length === 1)
     return showUserAccountsForOperation(phone, "Select account to invest into");
-  const { account, offset } = resolveSelectedAccount(phone, parts);
-  if (userAccounts.length > 1 && !account)
+  const { account, offset } = resolveSelectedAccountForInvestWithdraw(
+    phone,
+    parts
+  );
+  if (!account)
     return showUserAccountsForOperation(phone, "Select account to invest into");
-  if (parts.length === offset) return "CON Enter amount to invest (KES)";
+  if (parts.length === offset)
+    return `CON Selected: ${account.name}\nEnter amount to invest (KES)`;
   const idx = offset;
   const amount = Number(parts[idx]);
   if (!Number.isFinite(amount) || amount <= 0)
     return "CON Invalid amount. Enter a positive number (KES)";
-  if (parts.length === idx + 1) return "CON Enter your PIN";
+  if (parts.length === idx + 1)
+    return `CON ${account.name}\nEnter your PIN`;
   const pin = parts[idx + 1];
   if (!/^\d{4}$/.test(pin)) return "CON Invalid PIN. Enter 4 digits:";
 
-  const user = getUserByPhone(phone);
+  const user = getUserByPhone(phone) || getUserByPhone(account.phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
@@ -738,27 +756,32 @@ async function handleWithdraw(parts, phone) {
   const userAccounts = getUserAccounts(phone);
   if (!userAccounts || userAccounts.length === 0)
     return "END No accounts found. Please create an account first.";
-  if (userAccounts.length > 1 && parts.length === 1)
+  if (parts.length === 1)
     return showUserAccountsForOperation(
       phone,
       "Select account to withdraw from"
     );
-  const { account, offset } = resolveSelectedAccount(phone, parts);
-  if (userAccounts.length > 1 && !account)
+  const { account, offset } = resolveSelectedAccountForInvestWithdraw(
+    phone,
+    parts
+  );
+  if (!account)
     return showUserAccountsForOperation(
       phone,
       "Select account to withdraw from"
     );
-  if (parts.length === offset) return "CON Enter amount to withdraw (KES)";
+  if (parts.length === offset)
+    return `CON Selected: ${account.name}\nEnter amount to withdraw (KES)`;
   const idx = offset;
   const amount = Number(parts[idx]);
   if (!Number.isFinite(amount) || amount <= 0)
     return "CON Invalid amount. Enter a positive number (KES)";
-  if (parts.length === idx + 1) return "CON Enter your PIN";
+  if (parts.length === idx + 1)
+    return `CON ${account.name}\nEnter your PIN`;
   const pin = parts[idx + 1];
   if (!/^\d{4}$/.test(pin)) return "CON Invalid PIN. Enter 4 digits:";
 
-  const user = getUserByPhone(phone);
+  const user = getUserByPhone(phone) || getUserByPhone(account.phone);
   if (!user)
     return "END No account found for this number. Please create an account first.";
   if (user.pin !== pin) return "END Invalid PIN";
@@ -1170,13 +1193,7 @@ app.post("/ussd", async (req, res) => {
     // Also support: phone/phoneNumber, text (for testing/other gateways)
     const { phoneNumber, phone, msisdn, text, input } = req.body;
 
-    let normalizedPhone = String(msisdn || phoneNumber || phone || "")
-      .trim()
-      .replace(/\s+/g, "");
-    if (/^0\d+/.test(normalizedPhone))
-      normalizedPhone = "+254" + normalizedPhone.slice(1);
-    else if (/^254\d+/.test(normalizedPhone))
-      normalizedPhone = "+" + normalizedPhone;
+    const normalizedPhone = canonicalPhone(msisdn || phoneNumber || phone || "");
 
     // Use input (Tiara) or text (testing) for user selections
     const userInput = input !== undefined ? input : text;
